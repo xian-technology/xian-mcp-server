@@ -1,4 +1,5 @@
 services:
+  # Standard MCP server (stdio transport for Claude Desktop, LM Studio, etc.)
   xian-mcp:
     build: .
     image: xian-mcp-server:latest
@@ -8,3 +9,17 @@ services:
       - XIAN_GRAPHQL=${XIAN_GRAPHQL:-https://node.xian.org/graphql}
     stdin_open: true
     tty: true
+
+  # HTTP API mode (REST bridge for web apps, AI tool-calling, etc.)
+  xian-mcp-http:
+    build: .
+    image: xian-mcp-server:latest
+    command: ["python", "http_server.py"]
+    ports:
+      - "${HTTP_PORT:-8100}:8100"
+    environment:
+      - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-1}
+      - XIAN_NODE_URL=${XIAN_NODE_URL:-https://node.xian.org}
+      - XIAN_GRAPHQL=${XIAN_GRAPHQL:-https://node.xian.org/graphql}
+      - HTTP_PORT=8100
+    restart: unless-stopped

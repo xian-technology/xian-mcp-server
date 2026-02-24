@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the server code
 COPY xian_server.py .
+COPY http_server.py .
 
 # Create non-root user
 RUN useradd -m -u 1000 mcpuser && \
@@ -31,5 +32,5 @@ RUN useradd -m -u 1000 mcpuser && \
 # Switch to non-root user
 USER mcpuser
 
-# Run the server
+# Default: stdio MCP mode. Override with "python http_server.py" for HTTP.
 CMD ["python", "xian_server.py"]

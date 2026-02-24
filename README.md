@@ -17,6 +17,15 @@ A Model Context Protocol (MCP) server for interacting with the XIAN blockchain n
 - ✅ Trade on the XIAN DEX (buy/sell tokens)
 - ✅ Get real-time DEX price data
 
+## Transport Modes
+
+This server supports two transport modes:
+
+| Mode | Transport | Use Case |
+|------|-----------|----------|
+| **MCP (stdio)** | JSON-RPC over stdin/stdout | Claude Desktop, LM Studio, MCP clients |
+| **HTTP (REST)** | JSON over HTTP | Web apps, AI tool-calling loops, any HTTP client |
+
 ## Prerequisites
 
 - Docker Desktop installed and running
@@ -210,6 +219,82 @@ cp custom_catalog.yaml ~/.docker/mcp/catalogs/custom.yaml
 3. Add to registry:
 ```bash
 echo 'registry:\n  xian:\n    ref: ""' >> ~/.docker/mcp/registry.yaml
+```
+
+## HTTP API Mode
+
+The HTTP server exposes the same tools as a simple REST API, making them accessible to any HTTP client — web apps, AI tool-calling loops, automation scripts, etc.
+
+### Start the HTTP server
+
+```bash
+# Using Docker Compose (recommended)
+docker-compose up xian-mcp-http
+
+# Using Docker directly
+docker run -p 8100:8100 xian-mcp-server python http_server.py
+
+# Without Docker
+pip install -r requirements.txt
+python http_server.py
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/tools` | List all available tools with their parameter schemas |
+| `POST` | `/tools/{name}` | Call a tool by name with a JSON body |
+| `GET` | `/health` | Health check |
+
+### Examples
+
+```bash
+# List available tools
+curl http://localhost:8100/tools
+
+# Create a wallet
+curl -X POST http://localhost:8100/tools/create_wallet
+
+# Check a balance
+curl -X POST http://localhost:8100/tools/get_balance \
+  -H "Content-Type: application/json" \
+  -d '{"address": "your_address_here"}'
+
+# Get contract source code
+curl -X POST http://localhost:8100/tools/get_contract \
+  -H "Content-Type: application/json" \
+  -d '{"contract_name": "currency"}'
+```
+
+### Using with AI Tool-Calling
+
+The HTTP API follows a simple convention that works with AI tool-calling loops:
+
+1. **Discover tools**: `GET /tools` returns tool names, descriptions, and JSON Schema parameters
+2. **Call tools**: `POST /tools/{name}` with a JSON body matching the parameter schema
+3. **Get results**: Response contains `{"result": ...}` on success or `{"error": ...}` on failure
+
+This makes it easy to wire into any AI model that supports function/tool calling (OpenAI, Anthropic, OLMo, etc.) — just translate the model's tool call into a POST request and feed the result back.
+
+### Custom Tool Servers
+
+The HTTP wrapper (`http_server.py`) is designed to be reusable with any MCP server that uses the `TOOL_SPECS` pattern:
+
+```python
+from http_server import create_app
+
+# Use with any list of tool specs
+my_tools = [
+    {
+        "name": "my_tool",
+        "description": "Does something useful",
+        "schema": {"type": "object", "properties": {...}, "required": [...]},
+        "handler": my_async_handler,
+    },
+]
+
+app = create_app(tool_specs=my_tools)
 ```
 
 ## Configuration
