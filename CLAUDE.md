@@ -86,13 +86,13 @@ Restores wallet from existing private key.
 
 #### create_hd_wallet()
 Creates new HD (Hierarchical Deterministic) wallet with BIP39 mnemonic.
-- Generates 12-word recovery phrase
+- Generates a 24-word recovery phrase with current xian-tech-py defaults
 - Derives both XIAN and Ethereum wallets
 - Returns: `mnemonic`, `path`, XIAN keys, ETH keys
 - **User must save mnemonic securely offline**
 
 #### create_hd_wallet_from_mnemonic(mnemonic)
-Restores HD wallet from 12/24-word mnemonic phrase.
+Restores HD wallet from 12-word or 24-word mnemonic phrase.
 - Use for wallet recovery
 - Validates mnemonic format
 - Derives same wallets as original
@@ -105,6 +105,13 @@ Checks balance for any address and token.
 - `token_contract`: Default is "currency" (XIAN native token)
 - Works with any XSC-0001 compliant token
 - Returns: `address`, `token_contract`, `balance`
+
+#### get_token_balances(address, limit=100, offset=0, include_zero=False)
+Lists all token balances for an address.
+- Uses the indexed token-balance endpoint from current xian-tech-py
+- Supports pagination with `limit` and `offset`
+- Set `include_zero=True` to include tokens with zero balance
+- Returns paginated token metadata and balances for the address
 
 #### send_tokens(private_key, to_address, token_contract, amount)
 Sends tokens to another address.
@@ -443,7 +450,7 @@ def transfer(amount: float, to: str):
 - [Smart Contracts Guide](https://github.com/xian-network/smart-contracts-docs)
 
 ### Developer Resources
-- [xian-py SDK](https://github.com/xian-network/xian-py)
+- [xian-tech-py SDK](https://github.com/xian-network/xian-py)
 - [xian-core](https://github.com/xian-network/xian-core)
 - [xian-contracting](https://github.com/xian-network/xian-contracting)
 

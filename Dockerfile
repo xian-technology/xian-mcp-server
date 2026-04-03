@@ -15,15 +15,15 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the server code
+# Copy project metadata and source
+COPY pyproject.toml .
+COPY README.md .
 COPY xian_server.py .
 COPY http_server.py .
+COPY serialization.py .
+
+# Install dependencies and console entry points
+RUN pip install --no-cache-dir .
 
 # Create non-root user
 RUN useradd -m -u 1000 mcpuser && \
@@ -32,5 +32,5 @@ RUN useradd -m -u 1000 mcpuser && \
 # Switch to non-root user
 USER mcpuser
 
-# Default: stdio MCP mode. Override with "python http_server.py" for HTTP.
-CMD ["python", "xian_server.py"]
+# Default: stdio MCP mode. Override with "xian-mcp-http" for HTTP.
+CMD ["xian-mcp-server"]

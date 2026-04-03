@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server for interacting with the XIAN blockchain n
 
 - ✅ Create new wallets (standard and HD wallets)
 - ✅ Import wallets from private keys or mnemonics
-- ✅ Check balances (XIAN and custom tokens)
+- ✅ Check balances (XIAN, custom tokens, and all token holdings for an address)
 - ✅ Send transactions and tokens
 - ✅ Query and interact with smart contracts
 - ✅ Sign, verify, encrypt, and decrypt messages
@@ -58,6 +58,9 @@ The repo includes a test file with the proper MCP handshake that can be used to 
 
 #### Direct test
 ```bash
+xian-mcp-server < test_requests.jsonl
+
+# Or directly from source without installing scripts
 python xian_server.py < test_requests.jsonl
 ```
 
@@ -78,30 +81,36 @@ You should see two JSON responses:
 2. Tools list response (id:2)
 
 #### Implementation Tests
-To test the actual Xian blockchain functionality (wallets, transactions, cryptography), run the comprehensive test suite:
+The test suite is now split into deterministic unit tests and live-network integration tests:
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio
+# Install the project with test dependencies
+pip install -e .[dev]
 
-# Run the tests
-python test_xian_server.py
+# Run unit tests only (default)
+pytest -q
+
+# Run live integration tests against the configured network
+pytest -q tests/integration
 ```
 
-#### Before running the tests:
-1. Open test_xian_server.py and configure the test values at the top of the file
+#### Before running the integration tests:
+1. Open `tests/shared.py` and configure the test values if needed
 2. Update the values with real testnet data (addresses, private keys, etc.)
-3. The tests use testnet by default (https://testnet.xian.org)
+3. Integration tests use testnet by default (`https://testnet.xian.org`)
 
 #### What the tests cover:
-- ✅ Wallet creation and import
-- ✅ Balance and state queries
-- ✅ Transaction simulation and retrieval
-- ✅ Cryptographic operations - signing, encryption
-- ✅ Error handling for invalid inputs
+- ✅ Unit tests for wallet creation, cryptography, transport serialization, and compatibility shims
+- ✅ Integration tests for balances, state, transactions, token discovery, and DEX reads
+- ✅ Regression coverage for current `xian-tech-py` return types and tool defaults
+
+#### CI behavior:
+- ✅ Pull requests run the unit test suite and MCP handshake smoke test
+- ✅ Pushes to `main` run the same unit-only validation
+- ✅ Live integration tests run separately on the daily scheduled workflow or via manual `workflow_dispatch`
 
 #### Expected output:
-- Tests will show ✅ for passed tests
-- Tests requiring configuration will be skipped with helpful messages
+- Unit tests should pass without network access
+- Integration tests may skip if the public endpoint or test data is unavailable
 - Failed tests will show detailed error information
 
 Run these tests before building the Docker container to ensure all functionality works correctly with your network configuration.
@@ -232,11 +241,11 @@ The HTTP server exposes the same tools as a simple REST API, making them accessi
 docker-compose up xian-mcp-http
 
 # Using Docker directly
-docker run -p 8100:8100 xian-mcp-server python http_server.py
+docker run -p 8100:8100 xian-mcp-server xian-mcp-http
 
 # Without Docker
-pip install -r requirements.txt
-python http_server.py
+pip install -e .
+xian-mcp-http
 ```
 
 ### Endpoints
@@ -306,6 +315,7 @@ The server supports these environment variables:
 - `XIAN_NODE_URL`: XIAN node URL (default: `https://node.xian.org`)
 - `XIAN_CHAIN_ID`: XIAN chain ID (default: `xian-1`)
 - `XIAN_GRAPHQL`: GraphQL endpoint URL (default: `https://node.xian.org/graphql`)
+- `XIAN_INCLUDE_RAW`: Include SDK `raw` payloads in MCP/HTTP responses (default: `false`)
 
 #### Using Docker Compose with custom values
 
@@ -314,6 +324,7 @@ Create a `.env` file in the project directory (or copy and rename `.env.example`
 XIAN_NODE_URL=https://node.xian.org
 XIAN_CHAIN_ID=xian-1
 XIAN_GRAPHQL=https://node.xian.org/graphql
+XIAN_INCLUDE_RAW=false
 ```
 
 Then run:
@@ -350,8 +361,11 @@ Once installed, you can interact with the XIAN blockchain through your AI assist
 - "Import wallet from private key [key]"
 - "Restore HD wallet from mnemonic: [12/24 word phrase]"
 
+With current `xian-tech-py` defaults, newly created HD wallets use a 24-word mnemonic.
+
 ### Balance and Transactions
 - "Check balance for address 8bf21c7dc3a4ff32996bf56a665e1efe3c9261cc95bbf82552c328585c863829"
+- "List all token balances for address [address]"
 - "Send 10 XIAN to [address] using private key [key]"
 - "Send 100 custom_token to [address] using private key [key]"
 - "Get transaction details for hash [tx_hash]"
@@ -395,6 +409,7 @@ Once installed, you can interact with the XIAN blockchain through your AI assist
 | Tool | Description | Parameters | Requires Private Key |
 |------|-------------|------------|---------------------|
 | `get_balance` | Check address balance | `address`, `token_contract` | No |
+| `get_token_balances` | List all token balances for an address | `address`, `limit`, `offset`, `include_zero` | No |
 | `send_transaction` | Send generic transaction | `private_key`, `contract`, `function`, `kwargs` | Yes |
 | `send_tokens` | Send tokens to address | `private_key`, `to_address`, `token_contract`, `amount` | Yes |
 | `get_transaction` | Get transaction details | `tx_hash` | No |
@@ -461,16 +476,16 @@ For development, you can run the server directly:
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install -e .[dev]
 
 # Run the server
-python xian_server.py
+xian-mcp-server
 ```
 
 ## Resources
 
 - [XIAN Network Documentation](https://docs.xian.org)
-- [xian-py SDK](https://github.com/xian-network/xian-py)
+- [xian-tech-py SDK](https://github.com/xian-network/xian-py)
 - [Model Context Protocol](https://modelcontextprotocol.io)
 - [Claude Desktop MCP Guide](https://docs.anthropic.com/en/docs/mcp)
 - [LM Studio MCP Documentation](https://lmstudio.ai/docs/app/plugins/mcp)

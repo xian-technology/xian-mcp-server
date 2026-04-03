@@ -1,8 +1,1 @@
-mcp[cli]>=1.2.0
-httpx
-xian-py
-eth-account>=0.13.4
-eth-utils>=5.2.0
-aiohttp
-fastapi
-uvicorn
+.

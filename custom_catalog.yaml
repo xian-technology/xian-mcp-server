@@ -20,11 +20,17 @@ registry:
       - name: create_hd_wallet
       - name: create_hd_wallet_from_mnemonic
       - name: get_balance
+      - name: get_token_balances
       - name: send_transaction
       - name: send_tokens
       - name: get_transaction
       - name: get_state
       - name: get_contract
+      - name: get_token_contract_by_symbol
+      - name: get_token_data_by_contract
+      - name: buy_on_dex
+      - name: sell_on_dex
+      - name: get_dex_price
       - name: simulate_transaction
       - name: sign_message
       - name: verify_signature

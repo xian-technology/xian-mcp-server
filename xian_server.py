@@ -18,13 +18,13 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from decimal import Decimal
 from typing import Any, Awaitable, Callable, Dict, List
 
 import aiohttp
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
+from serialization import normalize_for_transport
 from xian_py import XianAsync, Wallet
 from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
@@ -48,24 +48,18 @@ app = Server("xian")
 
 
 # === HELPER: RESPONSE FORMATTING ===
-def _normalize_for_json(value: Any) -> Any:
-    """Coerce values into JSON-serializable forms."""
-    if isinstance(value, Decimal):
-        return float(value)
-    return value
-
-
 def format_success_response(data: Any) -> List[TextContent]:
     """
     Wrap a successful result in MCP TextContent.
     - Dict/list values are JSON-formatted for readability.
     - Strings are passed through as-is.
     """
+    data = normalize_for_transport(data)
     if isinstance(data, str):
         text = data
     else:
         try:
-            text = json.dumps(data, indent=2, default=_normalize_for_json)
+            text = json.dumps(data, indent=2)
         except Exception:
             text = str(data)
 
@@ -176,14 +170,51 @@ async def get_balance(address: str = "", token_contract: str = "currency") -> di
             balance = await xian.get_balance(address.strip(), contract=token_contract.strip())
             balance = 0 if balance is None else balance
 
-            return {
+            return normalize_for_transport({
                 "address": address.strip(),
                 "token_contract": token_contract.strip(),
                 "balance": balance,
-            }
+            })
     except Exception as ex:
         logger.error("Error getting balance: %s", ex)
         return f"❌ Error getting balance: {str(ex)}"
+
+
+async def get_token_balances(
+    address: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    include_zero: bool = False,
+) -> dict[str, Any] | str:
+    """List all token balances for an address."""
+    if not address.strip():
+        return "❌ Error: Address is required"
+
+    try:
+        limit = int(limit)
+        offset = int(offset)
+    except (TypeError, ValueError):
+        return "❌ Error: Limit and offset must be integers"
+
+    if limit <= 0:
+        return "❌ Error: Limit must be positive"
+    if offset < 0:
+        return "❌ Error: Offset must be zero or greater"
+
+    logger.info("Getting token balances for %s", address)
+
+    try:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+            balances = await xian.get_token_balances(
+                address.strip(),
+                limit=limit,
+                offset=offset,
+                include_zero=include_zero,
+            )
+            return normalize_for_transport(balances)
+    except Exception as ex:
+        logger.error("Error getting token balances: %s", ex)
+        return f"❌ Error getting token balances: {str(ex)}"
 
 
 async def send_transaction(
@@ -207,7 +238,8 @@ async def send_transaction(
     try:
         wallet = Wallet(private_key.strip())
         async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
-            return await xian.send_tx(contract, function, kwargs)
+            result = await xian.send_tx(contract, function, kwargs)
+            return normalize_for_transport(result)
     except Exception as ex:
         logger.error("Error sending transaction: %s", ex)
         return f"❌ Error sending transaction: {str(ex)}"
@@ -216,7 +248,7 @@ async def send_transaction(
 async def send_tokens(
     private_key: str = "",
     to_address: str = "",
-    token_contract: str = "",
+    token_contract: str = "currency",
     amount: float = 0,
 ) -> dict[str, str] | str:
     """Send tokens from a specific token contract to another address."""
@@ -234,7 +266,8 @@ async def send_tokens(
     try:
         wallet = Wallet(private_key.strip())
         async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
-            return await xian.send(amount, to_address, token_contract)
+            result = await xian.send(amount, to_address, token_contract)
+            return normalize_for_transport(result)
     except Exception as ex:
         logger.error("Error sending tokens: %s", ex)
         return f"❌ Error sending tokens: {str(ex)}"
@@ -247,7 +280,8 @@ async def get_transaction(tx_hash: str = "") -> dict[str, Any] | str:
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-            return await xian.get_tx(tx_hash)
+            tx = await xian.get_tx(tx_hash)
+            return normalize_for_transport(tx)
     except Exception as ex:
         logger.error("Error retrieving transaction: %s", ex)
         return f"❌ Error retrieving transaction: {str(ex)}"
@@ -272,14 +306,9 @@ async def get_state(state_key: str) -> dict[str, Any] | str:
             else:
                 state = await xian.get_state(contract, variable)
 
-            if isinstance(state, dict):
-                state_str = json.dumps(state, indent=2)
-            else:
-                state_str = str(state)
-
             return {
-                "state_key": state_str,
-                "state_value": state,
+                "state_key": state_key.strip(),
+                "state_value": normalize_for_transport(state),
             }
     except Exception as ex:
         logger.error("Error getting state: %s", ex)
@@ -295,7 +324,7 @@ async def get_contract(contract_name: str = "") -> dict[str, str] | str:
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-            source = await xian.get_contract(contract_name.strip(), clean=True)
+            source = await xian.get_contract(contract_name.strip())
             return {
                 "contract_name": contract_name.strip(),
                 "source": source,
@@ -313,7 +342,7 @@ async def simulate_transaction(
 ) -> dict[str, Any] | str:
     """Simulate a transaction to estimate stamps or execute read-only functions."""
     if not address.strip():
-        return "❌ Error: Private key is required"
+        return "❌ Error: Address is required"
     if not contract.strip():
         return "❌ Error: Contract name is required"
     if not function.strip():
@@ -331,7 +360,7 @@ async def simulate_transaction(
             "sender": address,
         }
 
-        return await simulate_tx_async(NODE_URL, payload)
+        return normalize_for_transport(await simulate_tx_async(NODE_URL, payload))
     except Exception as ex:
         logger.error("Error simulating transaction: %s", ex)
         return f"❌ Error simulating transaction: {str(ex)}"
@@ -363,7 +392,7 @@ async def verify_signature(address: str = "", message: str = "", signature: str 
     if not address.strip():
         return "❌ Error: Address is required"
     if not message.strip():
-        return "❌ Error: Address is required"
+        return "❌ Error: Message is required"
     if not signature.strip():
         return "❌ Error: Signature is required"
 
@@ -534,7 +563,7 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
 async def buy_on_dex(
     private_key: str = "",
     buy_token: str = "",
-    sell_token: str = "",
+    sell_token: str = "currency",
     amount: float = 0,
     slippage: float = 1.0,
     deadline_min: float = 1.0,
@@ -572,7 +601,7 @@ async def buy_on_dex(
 async def sell_on_dex(
     private_key: str = "",
     sell_token: str = "",
-    buy_token: str = "",
+    buy_token: str = "currency",
     amount: float = 0,
     slippage: float = 1.0,
     deadline_min: float = 1.0,
@@ -651,14 +680,14 @@ async def get_dex_price(token_contract: str = "", base_contract: str = "currency
         else:
             price = r0 / r1 if r1 > 0 else 0
 
-        return {
+        return normalize_for_transport({
             "token": token,
             "base": base,
             "price": price,
             "pair_id": pair,
             "reserve_token": r0 if token_a == token else r1,
             "reserve_base": r1 if token_a == token else r0,
-        }
+        })
 
     except Exception as ex:
         logger.error("Error getting DEX price: %s", ex)
@@ -782,7 +811,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "create_hd_wallet",
-        "description": "Create a new HD (Hierarchical Deterministic) wallet with a 12-word mnemonic phrase",
+        "description": "Create a new HD (Hierarchical Deterministic) wallet with the current xian-tech-py mnemonic defaults",
         "schema": {"type": "object", "properties": {}, "required": []},
         "handler": create_hd_wallet,
     },
@@ -812,6 +841,33 @@ TOOL_SPECS: List[dict[str, Any]] = [
             "required": ["address"],
         },
         "handler": get_balance,
+    },
+    {
+        "name": "get_token_balances",
+        "description": "List all token balances for a XIAN address with pagination support",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string", "description": "The XIAN address to inspect (64 hex characters)"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of token balances to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset",
+                    "default": 0,
+                },
+                "include_zero": {
+                    "type": "boolean",
+                    "description": "Include tokens whose current balance is zero",
+                    "default": False,
+                },
+            },
+            "required": ["address"],
+        },
+        "handler": get_token_balances,
     },
     {
         "name": "send_transaction",
@@ -1077,5 +1133,9 @@ async def main() -> None:
         )
 
 
-if __name__ == "__main__":
+def run_cli() -> None:
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run_cli()

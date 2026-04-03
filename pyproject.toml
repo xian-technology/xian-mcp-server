@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xian-mcp-server"
+version = "0.1.0"
+description = "MCP and HTTP server for interacting with the Xian blockchain"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp",
+  "eth-account>=0.13.4",
+  "eth-utils>=5.2.0",
+  "fastapi",
+  "httpx",
+  "mcp[cli]>=1.2.0",
+  "uvicorn",
+  "xian-tech-py[eth,hd]>=0.4.8,<0.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+]
+
+[project.scripts]
+xian-mcp-server = "xian_server:run_cli"
+xian-mcp-http = "http_server:run_http_server"
+
+[tool.setuptools]
+py-modules = ["http_server", "serialization", "xian_server"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+testpaths = ["tests/unit"]
+markers = [
+  "integration: tests that depend on live network services or public testnet data",
+]
+
+[tool.uv.sources]
+xian-tech-py = { path = "../xian-py", editable = true }

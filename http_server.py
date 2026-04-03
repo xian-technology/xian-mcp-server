@@ -25,26 +25,17 @@ Environment:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import os
 import sys
-from decimal import Decimal
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from serialization import normalize_for_transport
 
 logger = logging.getLogger(__name__)
-
-
-def _json_default(obj: Any) -> Any:
-    """Handle non-serializable types."""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
@@ -97,7 +88,10 @@ def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
         ]
 
     @app.post("/tools/{tool_name}")
-    async def call_tool(tool_name: str, body: dict[str, Any] = {}) -> JSONResponse:
+    async def call_tool(
+        tool_name: str,
+        body: dict[str, Any] | None = None,
+    ) -> JSONResponse:
         """Call a tool by name with JSON arguments."""
         entry = registry.get(tool_name)
         if entry is None:
@@ -107,6 +101,7 @@ def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
             )
 
         handler = entry["handler"]
+        body = body or {}
 
         try:
             result = await handler(**body)
@@ -129,9 +124,7 @@ def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
                 content={"error": result[2:].strip()},
             )
 
-        # Serialize with Decimal handling
-        content = json.loads(json.dumps(result, default=_json_default))
-        return JSONResponse(content={"result": content})
+        return JSONResponse(content={"result": normalize_for_transport(result)})
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -140,7 +133,7 @@ def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
     return app
 
 
-if __name__ == "__main__":
+def run_http_server() -> None:
     import uvicorn
 
     logging.basicConfig(
@@ -154,3 +147,7 @@ if __name__ == "__main__":
 
     logger.info("Starting MCP HTTP Bridge on %s:%d", host, port)
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    run_http_server()
