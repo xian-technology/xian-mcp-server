@@ -34,11 +34,27 @@ from xian_server import (
     encrypt_message,
     format_success_response,
     get_balance,
+    get_bds_status,
+    get_block,
+    get_block_by_hash,
     get_contract,
+    get_developer_rewards,
+    get_events_for_tx,
+    get_indexed_tx,
     get_state,
+    get_state_for_block,
+    get_state_for_tx,
+    get_state_history,
     get_token_balances,
     get_token_contract_by_symbol,
     get_token_data_by_contract,
+    list_blocks,
+    list_events,
+    list_shielded_output_tags,
+    list_shielded_wallet_history,
+    list_txs_by_contract,
+    list_txs_by_sender,
+    list_txs_for_block,
     send_tokens,
     send_transaction,
     sell_on_dex,
@@ -482,6 +498,246 @@ class TestCompatibilityRegressions:
         assert sell_result == {"tx_hash": "ok"}
         assert calls[0]["kwargs"]["sell_token"] == "currency"
         assert calls[1]["kwargs"]["buy_token"] == "currency"
+
+
+class TestIndexedReadTools:
+    @pytest.mark.asyncio
+    async def test_bds_and_developer_reward_reads(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_bds_status(self):
+                return {
+                    "available": True,
+                    "synced": True,
+                    "latest_height": 123,
+                }
+
+            async def get_developer_rewards(self, recipient_key):
+                assert recipient_key == "dev-key"
+                return {
+                    "recipient_key": recipient_key,
+                    "total_rewards": 42,
+                }
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        status = await get_bds_status()
+        rewards = await get_developer_rewards("dev-key")
+
+        assert status["available"] is True
+        assert status["latest_height"] == 123
+        assert rewards["recipient_key"] == "dev-key"
+        assert rewards["total_rewards"] == 42
+
+    @pytest.mark.asyncio
+    async def test_block_and_transaction_indexed_reads(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def list_blocks(self, *, limit, offset):
+                assert limit == 2
+                assert offset == 1
+                return [{"height": 100}, {"height": 101}]
+
+            async def get_block(self, height):
+                assert height == 100
+                return {"height": height, "hash": "block-100"}
+
+            async def get_block_by_hash(self, block_hash):
+                assert block_hash == "block-100"
+                return {"height": 100, "hash": block_hash}
+
+            async def get_indexed_tx(self, tx_hash):
+                assert tx_hash == "tx-1"
+                return {"hash": tx_hash, "sender": "alice"}
+
+            async def list_txs_for_block(self, block_ref):
+                assert block_ref == 100
+                return [{"hash": "tx-1"}]
+
+            async def list_txs_by_sender(self, sender, *, limit, offset):
+                assert sender == "alice"
+                assert limit == 5
+                assert offset == 2
+                return [{"hash": "tx-2", "sender": sender}]
+
+            async def list_txs_by_contract(self, contract, *, limit, offset):
+                assert contract == "currency"
+                assert limit == 3
+                assert offset == 0
+                return [{"hash": "tx-3", "contract": contract}]
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        blocks = await list_blocks(limit=2, offset=1)
+        block = await get_block(100)
+        block_by_hash = await get_block_by_hash("block-100")
+        indexed_tx = await get_indexed_tx("tx-1")
+        txs_for_block = await list_txs_for_block("100")
+        txs_by_sender = await list_txs_by_sender("alice", limit=5, offset=2)
+        txs_by_contract = await list_txs_by_contract("currency", limit=3)
+
+        assert [item["height"] for item in blocks] == [100, 101]
+        assert block["hash"] == "block-100"
+        assert block_by_hash["height"] == 100
+        assert indexed_tx["sender"] == "alice"
+        assert txs_for_block[0]["hash"] == "tx-1"
+        assert txs_by_sender[0]["sender"] == "alice"
+        assert txs_by_contract[0]["contract"] == "currency"
+
+    @pytest.mark.asyncio
+    async def test_event_and_state_indexed_reads(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_events_for_tx(self, tx_hash):
+                assert tx_hash == "tx-1"
+                return [{"event": "Transfer", "tx_hash": tx_hash}]
+
+            async def list_events(
+                self,
+                contract,
+                event,
+                *,
+                limit,
+                offset,
+                after_id,
+            ):
+                assert contract == "currency"
+                assert event == "Transfer"
+                assert limit == 10
+                assert offset == 0
+                assert after_id == 25
+                return [{"id": 26, "contract": contract, "event": event}]
+
+            async def get_state_history(self, key, *, limit, offset):
+                assert key == "currency.balances:alice"
+                assert limit == 10
+                assert offset == 5
+                return [{"key": key, "value": "100"}]
+
+            async def get_state_for_tx(self, tx_hash):
+                assert tx_hash == "tx-1"
+                return [{"key": "currency.balances:alice"}]
+
+            async def get_state_for_block(self, block_ref):
+                assert block_ref == "block-100"
+                return [{"key": "currency.balances:bob"}]
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        tx_events = await get_events_for_tx("tx-1")
+        events = await list_events(
+            contract="currency",
+            event="Transfer",
+            limit=10,
+            after_id=25,
+        )
+        state_history = await get_state_history(
+            "currency.balances:alice",
+            limit=10,
+            offset=5,
+        )
+        state_for_tx = await get_state_for_tx("tx-1")
+        state_for_block = await get_state_for_block("block-100")
+
+        assert tx_events[0]["event"] == "Transfer"
+        assert events[0]["id"] == 26
+        assert state_history[0]["key"] == "currency.balances:alice"
+        assert state_for_tx[0]["key"] == "currency.balances:alice"
+        assert state_for_block[0]["key"] == "currency.balances:bob"
+
+    @pytest.mark.asyncio
+    async def test_shielded_indexed_reads(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def list_shielded_output_tags(
+                self,
+                tag_value,
+                *,
+                kind,
+                limit,
+                offset,
+                after_id,
+            ):
+                assert tag_value == "sync-tag"
+                assert kind == "sync_hint"
+                assert limit == 20
+                assert offset == 0
+                assert after_id == 7
+                return [{"id": 8, "tag_value": tag_value, "kind": kind}]
+
+            async def list_shielded_wallet_history(
+                self,
+                tag_value,
+                *,
+                kind,
+                limit,
+                after_note_index,
+            ):
+                assert tag_value == "sync-tag"
+                assert kind == "sync_hint"
+                assert limit == 15
+                assert after_note_index == 3
+                return [{"note_index": 4, "tag_value": tag_value}]
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        tags = await list_shielded_output_tags(
+            tag_value="sync-tag",
+            limit=20,
+            after_id=7,
+        )
+        history = await list_shielded_wallet_history(
+            tag_value="sync-tag",
+            limit=15,
+            after_note_index=3,
+        )
+
+        assert tags[0]["id"] == 8
+        assert history[0]["note_index"] == 4
+
+    @pytest.mark.asyncio
+    async def test_indexed_read_tools_validate_inputs(self):
+        assert await get_developer_rewards("") == "❌ Error: Recipient key is required"
+        assert await list_blocks(limit=0) == "❌ Error: Limit must be positive"
+        assert await get_block("abc") == "❌ Error: Height must be an integer"
+        assert await list_txs_for_block("") == "❌ Error: Block reference is required"
+        assert await list_events("currency", "") == "❌ Error: Event is required"
+        assert (
+            await list_shielded_wallet_history("sync-tag", after_note_index=-1)
+            == "❌ Error: After note index must be zero or greater"
+        )
 
 
 class TestTransportSerialization:

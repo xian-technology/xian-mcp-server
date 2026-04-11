@@ -11,6 +11,8 @@ A Model Context Protocol (MCP) server for interacting with the XIAN blockchain n
 - ✅ Check balances (XIAN, custom tokens, and all token holdings for an address)
 - ✅ Send transactions and tokens
 - ✅ Query and interact with smart contracts
+- ✅ Read indexed/BDS-backed blocks, transactions, events, and state history
+- ✅ Inspect shielded wallet sync history and shielded output tags
 - ✅ Sign, verify, encrypt, and decrypt messages
 - ✅ Simulate transactions for gas estimation
 - ✅ Query token information by symbol or contract
@@ -100,7 +102,7 @@ pytest -q tests/integration
 
 #### What the tests cover:
 - ✅ Unit tests for wallet creation, cryptography, transport serialization, and compatibility shims
-- ✅ Integration tests for balances, state, transactions, token discovery, and DEX reads
+- ✅ Integration tests for balances, state, transactions, token discovery, indexed reads, and DEX reads
 - ✅ Regression coverage for current `xian-tech-py` return types and tool defaults
 
 #### CI behavior:
@@ -223,7 +225,21 @@ cp custom_catalog.yaml ~/.docker/mcp/catalogs/custom.yaml
 ## MCP Details
 
 - Transport: stdio (`mcp.server`), serving `list_tools` and `call_tool` with `TextContent` JSON responses.
-- Tools include wallet/HD wallet, balances/transactions, contract state/source, token queries, DEX helpers, and crypto (sign/verify/encrypt/decrypt). Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
+- Tools include wallet/HD wallet, balances/transactions, contract state/source, indexed BDS reads, shielded history reads, token queries, DEX helpers, and crypto (sign/verify/encrypt/decrypt). Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
+
+### Indexed/BDS Reads
+
+The server exposes typed wrappers for the indexed read surface already provided
+by `xian-tech-py`. These tools are read-only and are most useful when the
+connected node is running as a service node with BDS/indexed APIs enabled.
+
+Current indexed tool groups:
+
+- node/index status: `get_bds_status`
+- rewards: `get_developer_rewards`
+- blocks and txs: `list_blocks`, `get_block`, `get_block_by_hash`, `get_indexed_tx`, `list_txs_for_block`, `list_txs_by_sender`, `list_txs_by_contract`
+- events and state history: `get_events_for_tx`, `list_events`, `get_state_history`, `get_state_for_tx`, `get_state_for_block`
+- shielded wallet sync: `list_shielded_output_tags`, `list_shielded_wallet_history`
 
 3. Add to registry:
 ```bash

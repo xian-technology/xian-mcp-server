@@ -71,6 +71,47 @@ def format_error_response(error_msg: str) -> List[TextContent]:
     return [TextContent(type="text", text=f"Error: {error_msg}")]
 
 
+def _parse_int(value: Any, *, field: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as ex:
+        raise ValueError(f"{field} must be an integer") from ex
+
+
+def _parse_positive_int(value: Any, *, field: str) -> int:
+    parsed = _parse_int(value, field=field)
+    if parsed <= 0:
+        raise ValueError(f"{field} must be positive")
+    return parsed
+
+
+def _parse_non_negative_int(value: Any, *, field: str) -> int:
+    parsed = _parse_int(value, field=field)
+    if parsed < 0:
+        raise ValueError(f"{field} must be zero or greater")
+    return parsed
+
+
+def _normalize_block_ref(block_ref: str | int | None) -> str | int:
+    if isinstance(block_ref, str):
+        ref = block_ref.strip()
+        if not ref:
+            raise ValueError("Block reference is required")
+        if ref.isdigit():
+            return _parse_positive_int(ref, field="Block reference")
+        return ref
+    return _parse_positive_int(block_ref, field="Block reference")
+
+
+async def _call_indexed_read(method_name: str, /, *args: Any, **kwargs: Any) -> Any:
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        method = getattr(xian, method_name)
+        result = await method(*args, **kwargs)
+        return normalize_for_transport(result)
+
+
 # === CORE TOOLS (kept compatible with existing tests) ===
 async def create_wallet() -> dict[str, str] | str:
     """Create a new XIAN wallet with a random seed."""
@@ -215,6 +256,331 @@ async def get_token_balances(
     except Exception as ex:
         logger.error("Error getting token balances: %s", ex)
         return f"❌ Error getting token balances: {str(ex)}"
+
+
+async def get_bds_status() -> dict[str, Any] | str:
+    """Get indexed/BDS availability and synchronization status."""
+    try:
+        return await _call_indexed_read("get_bds_status")
+    except Exception as ex:
+        logger.error("Error getting BDS status: %s", ex)
+        return f"❌ Error getting BDS status: {str(ex)}"
+
+
+async def get_developer_rewards(recipient_key: str = "") -> dict[str, Any] | str:
+    """Get indexed developer reward totals for a recipient key."""
+    if not recipient_key.strip():
+        return "❌ Error: Recipient key is required"
+
+    try:
+        return await _call_indexed_read(
+            "get_developer_rewards",
+            recipient_key.strip(),
+        )
+    except Exception as ex:
+        logger.error("Error getting developer rewards: %s", ex)
+        return f"❌ Error getting developer rewards: {str(ex)}"
+
+
+async def list_blocks(
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]] | str:
+    """List indexed blocks with pagination."""
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_blocks",
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
+        logger.error("Error listing blocks: %s", ex)
+        return f"❌ Error listing blocks: {str(ex)}"
+
+
+async def get_block(height: int) -> dict[str, Any] | None | str:
+    """Get an indexed block by height."""
+    try:
+        height = _parse_positive_int(height, field="Height")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read("get_block", height)
+    except Exception as ex:
+        logger.error("Error getting block: %s", ex)
+        return f"❌ Error getting block: {str(ex)}"
+
+
+async def get_block_by_hash(block_hash: str = "") -> dict[str, Any] | None | str:
+    """Get an indexed block by block hash."""
+    if not block_hash.strip():
+        return "❌ Error: Block hash is required"
+
+    try:
+        return await _call_indexed_read("get_block_by_hash", block_hash.strip())
+    except Exception as ex:
+        logger.error("Error getting block by hash: %s", ex)
+        return f"❌ Error getting block by hash: {str(ex)}"
+
+
+async def get_indexed_tx(tx_hash: str = "") -> dict[str, Any] | None | str:
+    """Get an indexed transaction by transaction hash."""
+    if not tx_hash.strip():
+        return "❌ Error: Transaction hash is required"
+
+    try:
+        return await _call_indexed_read("get_indexed_tx", tx_hash.strip())
+    except Exception as ex:
+        logger.error("Error getting indexed transaction: %s", ex)
+        return f"❌ Error getting indexed transaction: {str(ex)}"
+
+
+async def list_txs_for_block(
+    block_ref: str | int | None = None,
+) -> list[dict[str, Any]] | str:
+    """List indexed transactions for a block reference."""
+    try:
+        block_ref = _normalize_block_ref(block_ref)
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read("list_txs_for_block", block_ref)
+    except Exception as ex:
+        logger.error("Error listing transactions for block: %s", ex)
+        return f"❌ Error listing transactions for block: {str(ex)}"
+
+
+async def list_txs_by_sender(
+    sender: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]] | str:
+    """List indexed transactions for a sender."""
+    if not sender.strip():
+        return "❌ Error: Sender is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_txs_by_sender",
+            sender.strip(),
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
+        logger.error("Error listing transactions by sender: %s", ex)
+        return f"❌ Error listing transactions by sender: {str(ex)}"
+
+
+async def list_txs_by_contract(
+    contract: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]] | str:
+    """List indexed transactions for a contract."""
+    if not contract.strip():
+        return "❌ Error: Contract is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_txs_by_contract",
+            contract.strip(),
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
+        logger.error("Error listing transactions by contract: %s", ex)
+        return f"❌ Error listing transactions by contract: {str(ex)}"
+
+
+async def get_events_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
+    """List indexed events emitted by a transaction."""
+    if not tx_hash.strip():
+        return "❌ Error: Transaction hash is required"
+
+    try:
+        return await _call_indexed_read("get_events_for_tx", tx_hash.strip())
+    except Exception as ex:
+        logger.error("Error getting events for transaction: %s", ex)
+        return f"❌ Error getting events for transaction: {str(ex)}"
+
+
+async def list_events(
+    contract: str = "",
+    event: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    after_id: int | None = None,
+) -> list[dict[str, Any]] | str:
+    """List indexed events for a contract/event name."""
+    if not contract.strip():
+        return "❌ Error: Contract is required"
+    if not event.strip():
+        return "❌ Error: Event is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+        if after_id is not None:
+            after_id = _parse_non_negative_int(after_id, field="After ID")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_events",
+            contract.strip(),
+            event.strip(),
+            limit=limit,
+            offset=offset,
+            after_id=after_id,
+        )
+    except Exception as ex:
+        logger.error("Error listing events: %s", ex)
+        return f"❌ Error listing events: {str(ex)}"
+
+
+async def get_state_history(
+    key: str = "",
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]] | str:
+    """List indexed state history for a key."""
+    if not key.strip():
+        return "❌ Error: State key is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "get_state_history",
+            key.strip(),
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
+        logger.error("Error getting state history: %s", ex)
+        return f"❌ Error getting state history: {str(ex)}"
+
+
+async def get_state_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
+    """List indexed state writes for a transaction hash."""
+    if not tx_hash.strip():
+        return "❌ Error: Transaction hash is required"
+
+    try:
+        return await _call_indexed_read("get_state_for_tx", tx_hash.strip())
+    except Exception as ex:
+        logger.error("Error getting state for transaction: %s", ex)
+        return f"❌ Error getting state for transaction: {str(ex)}"
+
+
+async def get_state_for_block(
+    block_ref: str | int | None = None,
+) -> list[dict[str, Any]] | str:
+    """List indexed state writes for a block reference."""
+    try:
+        block_ref = _normalize_block_ref(block_ref)
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read("get_state_for_block", block_ref)
+    except Exception as ex:
+        logger.error("Error getting state for block: %s", ex)
+        return f"❌ Error getting state for block: {str(ex)}"
+
+
+async def list_shielded_output_tags(
+    tag_value: str = "",
+    kind: str = "sync_hint",
+    limit: int = 100,
+    offset: int = 0,
+    after_id: int | None = None,
+) -> list[dict[str, Any]] | str:
+    """List indexed shielded output tags for a wallet sync tag."""
+    if not tag_value.strip():
+        return "❌ Error: Tag value is required"
+    if not kind.strip():
+        return "❌ Error: Kind is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        offset = _parse_non_negative_int(offset, field="Offset")
+        if after_id is not None:
+            after_id = _parse_non_negative_int(after_id, field="After ID")
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_shielded_output_tags",
+            tag_value.strip(),
+            kind=kind.strip(),
+            limit=limit,
+            offset=offset,
+            after_id=after_id,
+        )
+    except Exception as ex:
+        logger.error("Error listing shielded output tags: %s", ex)
+        return f"❌ Error listing shielded output tags: {str(ex)}"
+
+
+async def list_shielded_wallet_history(
+    tag_value: str = "",
+    kind: str = "sync_hint",
+    limit: int = 100,
+    after_note_index: int = 0,
+) -> list[dict[str, Any]] | str:
+    """List indexed shielded wallet history for a wallet sync tag."""
+    if not tag_value.strip():
+        return "❌ Error: Tag value is required"
+    if not kind.strip():
+        return "❌ Error: Kind is required"
+
+    try:
+        limit = _parse_positive_int(limit, field="Limit")
+        after_note_index = _parse_non_negative_int(
+            after_note_index,
+            field="After note index",
+        )
+    except ValueError as ex:
+        return f"❌ Error: {str(ex)}"
+
+    try:
+        return await _call_indexed_read(
+            "list_shielded_wallet_history",
+            tag_value.strip(),
+            kind=kind.strip(),
+            limit=limit,
+            after_note_index=after_note_index,
+        )
+    except Exception as ex:
+        logger.error("Error listing shielded wallet history: %s", ex)
+        return f"❌ Error listing shielded wallet history: {str(ex)}"
 
 
 async def send_transaction(
@@ -868,6 +1234,331 @@ TOOL_SPECS: List[dict[str, Any]] = [
             "required": ["address"],
         },
         "handler": get_token_balances,
+    },
+    {
+        "name": "get_bds_status",
+        "description": "Get indexed/BDS availability and synchronization status for the connected node",
+        "schema": {"type": "object", "properties": {}, "required": []},
+        "handler": get_bds_status,
+    },
+    {
+        "name": "get_developer_rewards",
+        "description": "Get indexed developer reward totals for a recipient key",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "recipient_key": {
+                    "type": "string",
+                    "description": "Developer reward recipient key or address",
+                }
+            },
+            "required": ["recipient_key"],
+        },
+        "handler": get_developer_rewards,
+    },
+    {
+        "name": "list_blocks",
+        "description": "List indexed blocks with pagination",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of blocks to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset",
+                    "default": 0,
+                },
+            },
+            "required": [],
+        },
+        "handler": list_blocks,
+    },
+    {
+        "name": "get_block",
+        "description": "Get an indexed block by height",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "height": {
+                    "type": "integer",
+                    "description": "Block height",
+                }
+            },
+            "required": ["height"],
+        },
+        "handler": get_block,
+    },
+    {
+        "name": "get_block_by_hash",
+        "description": "Get an indexed block by block hash",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "block_hash": {
+                    "type": "string",
+                    "description": "Block hash",
+                }
+            },
+            "required": ["block_hash"],
+        },
+        "handler": get_block_by_hash,
+    },
+    {
+        "name": "get_indexed_tx",
+        "description": "Get an indexed transaction by transaction hash",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "tx_hash": {
+                    "type": "string",
+                    "description": "Transaction hash",
+                }
+            },
+            "required": ["tx_hash"],
+        },
+        "handler": get_indexed_tx,
+    },
+    {
+        "name": "list_txs_for_block",
+        "description": "List indexed transactions for a block height or block hash",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "block_ref": {
+                    "anyOf": [
+                        {"type": "integer"},
+                        {"type": "string"},
+                    ],
+                    "description": "Block height or block hash",
+                }
+            },
+            "required": ["block_ref"],
+        },
+        "handler": list_txs_for_block,
+    },
+    {
+        "name": "list_txs_by_sender",
+        "description": "List indexed transactions submitted by a sender with pagination",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "sender": {
+                    "type": "string",
+                    "description": "Sender address or public key",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of transactions to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset",
+                    "default": 0,
+                },
+            },
+            "required": ["sender"],
+        },
+        "handler": list_txs_by_sender,
+    },
+    {
+        "name": "list_txs_by_contract",
+        "description": "List indexed transactions that called a contract with pagination",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "type": "string",
+                    "description": "Contract name",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of transactions to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset",
+                    "default": 0,
+                },
+            },
+            "required": ["contract"],
+        },
+        "handler": list_txs_by_contract,
+    },
+    {
+        "name": "get_events_for_tx",
+        "description": "List indexed events emitted by a transaction",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "tx_hash": {
+                    "type": "string",
+                    "description": "Transaction hash",
+                }
+            },
+            "required": ["tx_hash"],
+        },
+        "handler": get_events_for_tx,
+    },
+    {
+        "name": "list_events",
+        "description": "List indexed events for a contract and event name",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "type": "string",
+                    "description": "Contract name",
+                },
+                "event": {
+                    "type": "string",
+                    "description": "Event name",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset when after_id is not set",
+                    "default": 0,
+                },
+                "after_id": {
+                    "type": "integer",
+                    "description": "Cursor-based pagination anchor; overrides offset when set",
+                },
+            },
+            "required": ["contract", "event"],
+        },
+        "handler": list_events,
+    },
+    {
+        "name": "get_state_history",
+        "description": "List indexed history entries for a state key",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "State key in 'contract.variable:key' form",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of history entries to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset",
+                    "default": 0,
+                },
+            },
+            "required": ["key"],
+        },
+        "handler": get_state_history,
+    },
+    {
+        "name": "get_state_for_tx",
+        "description": "List indexed state writes produced by a transaction",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "tx_hash": {
+                    "type": "string",
+                    "description": "Transaction hash",
+                }
+            },
+            "required": ["tx_hash"],
+        },
+        "handler": get_state_for_tx,
+    },
+    {
+        "name": "get_state_for_block",
+        "description": "List indexed state writes produced by a block height or block hash",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "block_ref": {
+                    "anyOf": [
+                        {"type": "integer"},
+                        {"type": "string"},
+                    ],
+                    "description": "Block height or block hash",
+                }
+            },
+            "required": ["block_ref"],
+        },
+        "handler": get_state_for_block,
+    },
+    {
+        "name": "list_shielded_output_tags",
+        "description": "List indexed shielded output tags for a wallet sync tag",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "tag_value": {
+                    "type": "string",
+                    "description": "Wallet sync tag value",
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Tag kind",
+                    "default": "sync_hint",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of tag entries to return",
+                    "default": 100,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset when after_id is not set",
+                    "default": 0,
+                },
+                "after_id": {
+                    "type": "integer",
+                    "description": "Cursor-based pagination anchor; overrides offset when set",
+                },
+            },
+            "required": ["tag_value"],
+        },
+        "handler": list_shielded_output_tags,
+    },
+    {
+        "name": "list_shielded_wallet_history",
+        "description": "List indexed shielded wallet history for a wallet sync tag",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "tag_value": {
+                    "type": "string",
+                    "description": "Wallet sync tag value",
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "History kind",
+                    "default": "sync_hint",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of history entries to return",
+                    "default": 100,
+                },
+                "after_note_index": {
+                    "type": "integer",
+                    "description": "Cursor for note history pagination",
+                    "default": 0,
+                },
+            },
+            "required": ["tag_value"],
+        },
+        "handler": list_shielded_wallet_history,
     },
     {
         "name": "send_transaction",
