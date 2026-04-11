@@ -16,32 +16,32 @@ This MCP server provides comprehensive blockchain functionality for the XIAN Net
 Before executing any transaction that:
 - Sends tokens or currency
 - Trades on the DEX
-- Requires spending stamps (gas fees)
+- Requires spending chi (transaction fees)
 
 Always confirm with the user:
 1. What operation will be performed
 2. The amount and destination
-3. Estimated stamp costs (if known)
+3. Estimated chi costs (if known)
 4. That they want to proceed
 
 ### 🎯 Best Practices
 - Always check balance before sending transactions
-- Simulate transactions when possible to estimate stamps
+- Simulate transactions when possible to estimate chi
 - Verify addresses are valid (64-character hex strings)
 - Use testnet for learning: `https://testnet.xian.org`
 - Store recovery phrases/mnemonics securely offline
 
 ## XIAN-Specific Concepts
 
-### Stamps (Transaction Fees)
-Stamps are XIAN's equivalent of "gas" on other blockchains. Key differences:
+### Chi (Transaction Fees)
+Chi are Xian's equivalent of "gas" on other blockchains. Key differences:
 - **68% goes to the contract developer** whose contract is executed
 - **30% goes to validators** (split evenly among active validators)
 - **1% is permanently burned**, creating deflationary pressure
-- Stamps are paid in XIAN (the native currency token)
+- Chi are paid in XIAN (the native currency token)
 - Fixed and predictable costs unlike dynamic gas markets
 
-When simulating transactions, the result includes stamp usage estimates.
+When simulating transactions, the result includes chi usage estimates.
 
 ### State Variables and Storage
 XIAN contracts use two types of state variables:
@@ -128,12 +128,12 @@ Generic transaction for any contract function.
 
 #### get_transaction(tx_hash)
 Retrieves transaction details by hash.
-- Returns full transaction data including status, stamps used, result
+- Returns full transaction data including status, chi used, result
 - Use to verify transaction completion
 
 #### simulate_transaction(address, contract, function, kwargs)
 Dry-run transaction without executing on-chain.
-- Estimates stamp costs
+- Estimates chi costs
 - Validates parameters
 - Tests contract function logic
 - **Use before expensive operations**
@@ -368,7 +368,7 @@ Return strings with ❌ emoji and clear error message:
 
 **"Insufficient balance"**
 - Check balance before transactions
-- Account for stamp costs
+- Account for chi costs
 - Verify correct token contract
 
 **"Contract not found"**
@@ -378,7 +378,7 @@ Return strings with ❌ emoji and clear error message:
 
 **"Transaction failed"**
 - Check transaction details with get_transaction
-- Review stamps used vs. provided
+- Review chi used vs. provided
 - Verify function parameters
 
 ### Enable Debug Logging
@@ -479,15 +479,15 @@ Optional features:
 ## Economic Model
 
 ### Developer Incentives
-- **68% of all stamps** go to contract developers
+- **68% of all chi** go to contract developers
 - Developers earn automatically on every contract use
 - No applications or approval needed
 - First-class economic participants
 
 ### Supply Dynamics
 - Genesis supply: 111,111,111 XIAN
-- 1% of stamps permanently burned each transaction
+- 1% of chi permanently burned each transaction
 - Deflationary pressure over time
-- 100% of stamps redistributed (68% dev, 30% validators, 1% burn)
+- 100% of chi redistributed (68% dev, 30% validators, 1% burn)
 
 This unique model makes XIAN attractive for developers while maintaining network security through validator rewards.

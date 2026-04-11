@@ -323,8 +323,8 @@ class TestCompatibilityRegressions:
                         "tx_hash": "abc",
                         "mode": "checktx",
                         "nonce": 7,
-                        "stamps_supplied": 123,
-                        "stamps_estimated": 120,
+                        "chi_supplied": 123,
+                        "chi_estimated": 120,
                         "message": None,
                         "response": {"result": {"hash": "abc"}},
                     }
@@ -438,8 +438,8 @@ class TestCompatibilityRegressions:
                         "tx_hash": "def",
                         "mode": "checktx",
                         "nonce": 8,
-                        "stamps_supplied": 55,
-                        "stamps_estimated": 50,
+                        "chi_supplied": 55,
+                        "chi_estimated": 50,
                         "message": None,
                         "response": {"result": {"hash": "def"}},
                     }
@@ -495,8 +495,8 @@ class TestTransportSerialization:
                     "tx_hash": "abc",
                     "mode": "checktx",
                     "nonce": 1,
-                    "stamps_supplied": 2,
-                    "stamps_estimated": 1,
+                    "chi_supplied": 2,
+                    "chi_estimated": 1,
                     "message": None,
                     "response": {"result": {"hash": "abc"}},
                     "receipt": TransactionReceipt.from_lookup(

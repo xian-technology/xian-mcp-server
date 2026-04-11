@@ -340,7 +340,7 @@ async def simulate_transaction(
     function: str = "",
     kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any] | str:
-    """Simulate a transaction to estimate stamps or execute read-only functions."""
+    """Simulate a transaction to estimate chi or execute read-only functions."""
     if not address.strip():
         return "❌ Error: Address is required"
     if not contract.strip():
@@ -919,7 +919,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "simulate_transaction",
-        "description": "Simulate a transaction to estimate stamps without executing it",
+        "description": "Simulate a transaction to estimate chi without executing it",
         "schema": {
             "type": "object",
             "properties": {
