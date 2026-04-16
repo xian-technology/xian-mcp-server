@@ -28,24 +28,24 @@ jobs:
         working-directory: xian-mcp-server
     steps:
       - name: Checkout xian-mcp-server
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: xian-mcp-server
 
       - name: Checkout xian-py
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-py
           path: xian-py
 
       - name: Checkout xian-contracting
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-contracting
           path: xian-contracting
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -71,24 +71,24 @@ jobs:
         working-directory: xian-mcp-server
     steps:
       - name: Checkout xian-mcp-server
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: xian-mcp-server
 
       - name: Checkout xian-py
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-py
           path: xian-py
 
       - name: Checkout xian-contracting
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: xian-technology/xian-contracting
           path: xian-contracting
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
