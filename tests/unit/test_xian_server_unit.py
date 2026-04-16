@@ -787,3 +787,39 @@ class TestTransportSerialization:
         )
 
         assert normalized == {"value": 1}
+
+
+class TestUnsafeToolGating:
+    @pytest.mark.asyncio
+    async def test_list_tools_hides_unsafe_tools_by_default(self, monkeypatch):
+        monkeypatch.delenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", raising=False)
+
+        tools = await xian_server.list_tools()
+        tool_names = {tool.name for tool in tools}
+
+        assert "create_wallet" not in tool_names
+        assert "send_transaction" not in tool_names
+        assert "sign_message" not in tool_names
+        assert "get_balance" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_call_tool_rejects_unsafe_tools_by_default(self, monkeypatch):
+        monkeypatch.delenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", raising=False)
+
+        result = await xian_server.call_tool("create_wallet", {})
+
+        assert len(result) == 1
+        assert "disabled by default" in result[0].text
+
+    @pytest.mark.asyncio
+    async def test_list_tools_exposes_unsafe_tools_when_enabled(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
+
+        tools = await xian_server.list_tools()
+        tool_names = {tool.name for tool in tools}
+
+        assert "create_wallet" in tool_names
+        assert "send_transaction" in tool_names
+        assert "sign_message" in tool_names

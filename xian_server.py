@@ -42,6 +42,7 @@ logger = logging.getLogger("xian-server")
 CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-1")
 NODE_URL = os.environ.get("XIAN_NODE_URL", "https://node.xian.org")
 GRAPHQL = os.environ.get("XIAN_GRAPHQL", "https://node.xian.org/graphql")
+UNSAFE_WALLET_TOOLS_ENV = "XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS"
 
 # === MCP APP INITIALIZATION ===
 app = Server("xian")
@@ -69,6 +70,11 @@ def format_success_response(data: Any) -> List[TextContent]:
 def format_error_response(error_msg: str) -> List[TextContent]:
     """Wrap an error in MCP TextContent."""
     return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+
+def _unsafe_wallet_tools_enabled() -> bool:
+    value = os.environ.get(UNSAFE_WALLET_TOOLS_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_int(value: Any, *, field: str) -> int:
@@ -1161,6 +1167,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "name": "create_wallet",
         "description": "Create a new random XIAN wallet with public/private key pair",
         "schema": {"type": "object", "properties": {}, "required": []},
+        "unsafe": True,
         "handler": create_wallet,
     },
     {
@@ -1173,12 +1180,14 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key"],
         },
+        "unsafe": True,
         "handler": create_wallet_from_private_key,
     },
     {
         "name": "create_hd_wallet",
         "description": "Create a new HD (Hierarchical Deterministic) wallet with the current xian-tech-py mnemonic defaults",
         "schema": {"type": "object", "properties": {}, "required": []},
+        "unsafe": True,
         "handler": create_hd_wallet,
     },
     {
@@ -1189,6 +1198,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             "properties": {"mnemonic": {"type": "string", "description": "Mnemonic phrase (space separated)"}},
             "required": ["mnemonic"],
         },
+        "unsafe": True,
         "handler": create_hd_wallet_from_mnemonic,
     },
     {
@@ -1577,6 +1587,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key", "contract", "function"],
         },
+        "unsafe": True,
         "handler": send_transaction,
     },
     {
@@ -1596,6 +1607,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key", "to_address", "amount"],
         },
+        "unsafe": True,
         "handler": send_tokens,
     },
     {
@@ -1682,6 +1694,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key", "buy_token", "amount"],
         },
+        "unsafe": True,
         "handler": buy_on_dex,
     },
     {
@@ -1699,6 +1712,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key", "sell_token", "amount"],
         },
+        "unsafe": True,
         "handler": sell_on_dex,
     },
     {
@@ -1729,6 +1743,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["private_key", "message"],
         },
+        "unsafe": True,
         "handler": sign_message,
     },
     {
@@ -1757,6 +1772,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["sender_private_key", "receiver_public_key", "message"],
         },
+        "unsafe": True,
         "handler": encrypt_message,
     },
     {
@@ -1771,11 +1787,15 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["receiver_private_key", "sender_public_key", "encrypted_message"],
         },
+        "unsafe": True,
         "handler": decrypt_message,
     },
 ]
 
 TOOL_REGISTRY: Dict[str, ToolHandler] = {spec["name"]: spec["handler"] for spec in TOOL_SPECS}
+TOOL_SPEC_BY_NAME: Dict[str, dict[str, Any]] = {
+    spec["name"]: spec for spec in TOOL_SPECS
+}
 
 
 @app.list_tools()
@@ -1784,12 +1804,21 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(name=spec["name"], description=spec["description"], inputSchema=spec["schema"])
         for spec in TOOL_SPECS
+        if not spec.get("unsafe") or _unsafe_wallet_tools_enabled()
     ]
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool execution via MCP."""
+    spec = TOOL_SPEC_BY_NAME.get(name)
+    if spec is None:
+        return format_error_response(f"Unknown tool: {name}")
+    if spec.get("unsafe") and not _unsafe_wallet_tools_enabled():
+        return format_error_response(
+            f"{name} is disabled by default. Set {UNSAFE_WALLET_TOOLS_ENV}=1 "
+            "to enable unsafe wallet/signing tools on a trusted local host."
+        )
     handler = TOOL_REGISTRY.get(name)
     if handler is None:
         return format_error_response(f"Unknown tool: {name}")
@@ -1815,6 +1844,10 @@ async def main() -> None:
     logger.info("Chain ID: %s", CHAIN_ID)
     logger.info("Node URL: %s", NODE_URL)
     logger.info("GraphQL : %s", GRAPHQL)
+    logger.info(
+        "Unsafe wallet tools enabled: %s",
+        _unsafe_wallet_tools_enabled(),
+    )
 
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
