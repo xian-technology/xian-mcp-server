@@ -23,12 +23,13 @@ from typing import Any, Awaitable, Callable, Dict, List
 import aiohttp
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-from serialization import normalize_for_transport
-from xian_py import XianAsync, Wallet
+from mcp.types import TextContent, Tool
+from xian_py import Wallet, XianAsync
 from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
 from xian_py.wallet import HDWallet, verify_msg
+
+from serialization import normalize_for_transport
 
 # Configure logging to stderr
 logging.basicConfig(

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
-import os
 
 import pytest
+from xian_py.models import (
+    TokenBalancePage,
+    TransactionReceipt,
+    TransactionSubmission,
+)
 
 import xian_server
 from serialization import normalize_for_transport
@@ -16,13 +20,6 @@ from tests.shared import (
     TEST_RECEIVER_PUBLIC_KEY,
     TEST_SENDER_PRIVATE_KEY,
     TEST_SENDER_PUBLIC_KEY,
-    TEST_TOKEN_CONTRACT,
-    TEST_TOKEN_SYMBOL,
-)
-from xian_py.models import (
-    TokenBalancePage,
-    TransactionReceipt,
-    TransactionSubmission,
 )
 from xian_server import (
     buy_on_dex,
@@ -55,9 +52,9 @@ from xian_server import (
     list_txs_by_contract,
     list_txs_by_sender,
     list_txs_for_block,
+    sell_on_dex,
     send_tokens,
     send_transaction,
-    sell_on_dex,
     sign_message,
     verify_signature,
 )

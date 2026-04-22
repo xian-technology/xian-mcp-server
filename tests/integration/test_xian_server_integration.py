@@ -24,7 +24,6 @@ from xian_server import (
     simulate_transaction,
 )
 
-
 pytestmark = pytest.mark.integration
 
 
