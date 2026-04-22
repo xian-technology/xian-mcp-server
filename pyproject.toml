@@ -23,6 +23,7 @@ dependencies = [
 dev = [
   "pytest",
   "pytest-asyncio",
+  "ruff>=0.15.6,<0.16",
 ]
 
 [project.scripts]
@@ -39,6 +40,13 @@ testpaths = ["tests/unit"]
 markers = [
   "integration: tests that depend on live network services or public testnet data",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "I"]
 
 [tool.uv.sources]
 xian-tech-py = { path = "../xian-py", editable = true }

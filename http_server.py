@@ -33,6 +33,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
 from serialization import normalize_for_transport
 
 logger = logging.getLogger(__name__)
