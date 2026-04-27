@@ -9,21 +9,21 @@ description = "MCP and HTTP server for interacting with the Xian blockchain"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "aiohttp",
-  "eth-account>=0.13.4",
-  "eth-utils>=5.2.0",
-  "fastapi",
-  "httpx",
-  "mcp[cli]>=1.2.0",
-  "uvicorn",
+  "aiohttp>=3.13.5,<4",
+  "eth-account>=0.13.7,<0.14",
+  "eth-utils>=6.0.0,<7",
+  "fastapi>=0.136.1,<0.137",
+  "httpx>=0.28.1,<0.29",
+  "mcp[cli]>=1.27.0,<2",
+  "uvicorn>=0.46.0,<0.47",
   "xian-tech-py[eth,hd]>=0.4.8,<0.5",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest",
-  "pytest-asyncio",
-  "ruff>=0.15.6,<0.16",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=1.3.0,<2",
+  "ruff>=0.15.12,<0.16",
 ]
 
 [project.scripts]

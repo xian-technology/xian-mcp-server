@@ -51,8 +51,7 @@ def normalize_for_transport(
 
     if isinstance(value, (list, tuple, set)):
         return [
-            normalize_for_transport(item, include_raw=include_raw)
-            for item in value
+            normalize_for_transport(item, include_raw=include_raw) for item in value
         ]
 
     value_dict = getattr(value, "__dict__", None)

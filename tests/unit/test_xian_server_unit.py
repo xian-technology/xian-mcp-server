@@ -809,9 +809,7 @@ class TestUnsafeToolGating:
         assert "disabled by default" in result[0].text
 
     @pytest.mark.asyncio
-    async def test_list_tools_exposes_unsafe_tools_when_enabled(
-        self, monkeypatch
-    ):
+    async def test_list_tools_exposes_unsafe_tools_when_enabled(self, monkeypatch):
         monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
 
         tools = await xian_server.list_tools()

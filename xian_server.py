@@ -206,7 +206,9 @@ async def create_hd_wallet_from_mnemonic(mnemonic: str = "") -> dict[str, str] |
         return f"❌ Error creating HD wallet: {str(ex)}"
 
 
-async def get_balance(address: str = "", token_contract: str = "currency") -> dict[str, Any] | str:
+async def get_balance(
+    address: str = "", token_contract: str = "currency"
+) -> dict[str, Any] | str:
     """Get balance for an address, optionally for a specific token contract."""
     if not address.strip():
         return "❌ Error: Address is required"
@@ -215,14 +217,18 @@ async def get_balance(address: str = "", token_contract: str = "currency") -> di
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-            balance = await xian.get_balance(address.strip(), contract=token_contract.strip())
+            balance = await xian.get_balance(
+                address.strip(), contract=token_contract.strip()
+            )
             balance = 0 if balance is None else balance
 
-            return normalize_for_transport({
-                "address": address.strip(),
-                "token_contract": token_contract.strip(),
-                "balance": balance,
-            })
+            return normalize_for_transport(
+                {
+                    "address": address.strip(),
+                    "token_contract": token_contract.strip(),
+                    "balance": balance,
+                }
+            )
     except Exception as ex:
         logger.error("Error getting balance: %s", ex)
         return f"❌ Error getting balance: {str(ex)}"
@@ -739,7 +745,9 @@ async def simulate_transaction(
         return f"❌ Error simulating transaction: {str(ex)}"
 
 
-async def sign_message(private_key: str = "", message: str = "") -> dict[str, str] | str:
+async def sign_message(
+    private_key: str = "", message: str = ""
+) -> dict[str, str] | str:
     """Sign a message with a wallet's private key."""
     if not private_key.strip():
         return "❌ Error: Private key is required"
@@ -760,7 +768,9 @@ async def sign_message(private_key: str = "", message: str = "") -> dict[str, st
         return f"❌ Error signing message: {str(ex)}"
 
 
-async def verify_signature(address: str = "", message: str = "", signature: str = "") -> bool | str:
+async def verify_signature(
+    address: str = "", message: str = "", signature: str = ""
+) -> bool | str:
     """Verify a signature for a message."""
     if not address.strip():
         return "❌ Error: Address is required"
@@ -1012,7 +1022,9 @@ async def sell_on_dex(
         return f"❌ Error selling on DEX: {str(ex)}"
 
 
-async def get_dex_price(token_contract: str = "", base_contract: str = "currency") -> dict[str, Any] | str:
+async def get_dex_price(
+    token_contract: str = "", base_contract: str = "currency"
+) -> dict[str, Any] | str:
     """Get DEX price for a token against a base currency."""
     if not token_contract.strip():
         return "❌ Error: Token contract is required"
@@ -1053,14 +1065,16 @@ async def get_dex_price(token_contract: str = "", base_contract: str = "currency
         else:
             price = r0 / r1 if r1 > 0 else 0
 
-        return normalize_for_transport({
-            "token": token,
-            "base": base,
-            "price": price,
-            "pair_id": pair,
-            "reserve_token": r0 if token_a == token else r1,
-            "reserve_base": r1 if token_a == token else r0,
-        })
+        return normalize_for_transport(
+            {
+                "token": token,
+                "base": base,
+                "price": price,
+                "pair_id": pair,
+                "reserve_token": r0 if token_a == token else r1,
+                "reserve_base": r1 if token_a == token else r0,
+            }
+        )
 
     except Exception as ex:
         logger.error("Error getting DEX price: %s", ex)
@@ -1147,7 +1161,9 @@ async def fetch_graphql(
                 result = await response.json()
 
                 if "errors" in result:
-                    error_msg = ", ".join(err.get("message", str(err)) for err in result["errors"])
+                    error_msg = ", ".join(
+                        err.get("message", str(err)) for err in result["errors"]
+                    )
                     raise Exception(f"GraphQL errors: {error_msg}")
 
                 return result.get("data", {})
@@ -1177,7 +1193,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "The private key (64 hex characters)"},
+                "private_key": {
+                    "type": "string",
+                    "description": "The private key (64 hex characters)",
+                },
             },
             "required": ["private_key"],
         },
@@ -1196,7 +1215,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Restore an HD wallet from a mnemonic phrase (12 or 24 words)",
         "schema": {
             "type": "object",
-            "properties": {"mnemonic": {"type": "string", "description": "Mnemonic phrase (space separated)"}},
+            "properties": {
+                "mnemonic": {
+                    "type": "string",
+                    "description": "Mnemonic phrase (space separated)",
+                }
+            },
             "required": ["mnemonic"],
         },
         "unsafe": True,
@@ -1208,7 +1232,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "address": {"type": "string", "description": "The XIAN address to check (64 hex characters)"},
+                "address": {
+                    "type": "string",
+                    "description": "The XIAN address to check (64 hex characters)",
+                },
                 "token_contract": {
                     "type": "string",
                     "description": "The token contract name (default: 'currency')",
@@ -1225,7 +1252,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "address": {"type": "string", "description": "The XIAN address to inspect (64 hex characters)"},
+                "address": {
+                    "type": "string",
+                    "description": "The XIAN address to inspect (64 hex characters)",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of token balances to return",
@@ -1577,9 +1607,15 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "Private key of the sender"},
+                "private_key": {
+                    "type": "string",
+                    "description": "Private key of the sender",
+                },
                 "contract": {"type": "string", "description": "Contract name to call"},
-                "function": {"type": "string", "description": "Function name to execute"},
+                "function": {
+                    "type": "string",
+                    "description": "Function name to execute",
+                },
                 "kwargs": {
                     "type": "object",
                     "description": "Function arguments as key-value pairs",
@@ -1597,7 +1633,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "Private key of the sender"},
+                "private_key": {
+                    "type": "string",
+                    "description": "Private key of the sender",
+                },
                 "to_address": {"type": "string", "description": "Recipient address"},
                 "token_contract": {
                     "type": "string",
@@ -1616,7 +1655,9 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Get details of a transaction by its hash",
         "schema": {
             "type": "object",
-            "properties": {"tx_hash": {"type": "string", "description": "Transaction hash"}},
+            "properties": {
+                "tx_hash": {"type": "string", "description": "Transaction hash"}
+            },
             "required": ["tx_hash"],
         },
         "handler": get_transaction,
@@ -1627,10 +1668,17 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "address": {"type": "string", "description": "Sender address for simulation"},
+                "address": {
+                    "type": "string",
+                    "description": "Sender address for simulation",
+                },
                 "contract": {"type": "string", "description": "Contract name"},
                 "function": {"type": "string", "description": "Function name"},
-                "kwargs": {"type": "object", "description": "Function arguments", "default": {}},
+                "kwargs": {
+                    "type": "object",
+                    "description": "Function arguments",
+                    "default": {},
+                },
             },
             "required": ["address", "contract", "function"],
         },
@@ -1641,7 +1689,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Read a state variable from a smart contract",
         "schema": {
             "type": "object",
-            "properties": {"state_key": {"type": "string", "description": "State key 'contract.variable:key'"}},
+            "properties": {
+                "state_key": {
+                    "type": "string",
+                    "description": "State key 'contract.variable:key'",
+                }
+            },
             "required": ["state_key"],
         },
         "handler": get_state,
@@ -1651,7 +1704,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Get the source code of a smart contract",
         "schema": {
             "type": "object",
-            "properties": {"contract_name": {"type": "string", "description": "Name of the contract"}},
+            "properties": {
+                "contract_name": {
+                    "type": "string",
+                    "description": "Name of the contract",
+                }
+            },
             "required": ["contract_name"],
         },
         "handler": get_contract,
@@ -1661,7 +1719,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Find the contract address for a token by its symbol",
         "schema": {
             "type": "object",
-            "properties": {"token_symbol": {"type": "string", "description": "Token symbol (e.g., 'XIAN')"}},
+            "properties": {
+                "token_symbol": {
+                    "type": "string",
+                    "description": "Token symbol (e.g., 'XIAN')",
+                }
+            },
             "required": ["token_symbol"],
         },
         "handler": get_token_contract_by_symbol,
@@ -1671,7 +1734,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Get metadata for a token by its contract address",
         "schema": {
             "type": "object",
-            "properties": {"token_contract": {"type": "string", "description": "Token contract name"}},
+            "properties": {
+                "token_contract": {
+                    "type": "string",
+                    "description": "Token contract name",
+                }
+            },
             "required": ["token_contract"],
         },
         "handler": get_token_data_by_contract,
@@ -1682,16 +1750,30 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "Private key for signing the transaction"},
+                "private_key": {
+                    "type": "string",
+                    "description": "Private key for signing the transaction",
+                },
                 "buy_token": {"type": "string", "description": "Token contract to buy"},
                 "sell_token": {
                     "type": "string",
                     "description": "Token contract to sell",
                     "default": "currency",
                 },
-                "amount": {"type": "number", "description": "Amount of sell_token to spend"},
-                "slippage": {"type": "number", "description": "Max slippage percentage", "default": 1.0},
-                "deadline_min": {"type": "number", "description": "Deadline in minutes", "default": 1.0},
+                "amount": {
+                    "type": "number",
+                    "description": "Amount of sell_token to spend",
+                },
+                "slippage": {
+                    "type": "number",
+                    "description": "Max slippage percentage",
+                    "default": 1.0,
+                },
+                "deadline_min": {
+                    "type": "number",
+                    "description": "Deadline in minutes",
+                    "default": 1.0,
+                },
             },
             "required": ["private_key", "buy_token", "amount"],
         },
@@ -1704,12 +1786,33 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "Private key for signing the transaction"},
-                "sell_token": {"type": "string", "description": "Token contract to sell"},
-                "buy_token": {"type": "string", "description": "Token contract to receive", "default": "currency"},
-                "amount": {"type": "number", "description": "Amount of sell_token to sell"},
-                "slippage": {"type": "number", "description": "Max slippage percentage", "default": 1.0},
-                "deadline_min": {"type": "number", "description": "Deadline in minutes", "default": 1.0},
+                "private_key": {
+                    "type": "string",
+                    "description": "Private key for signing the transaction",
+                },
+                "sell_token": {
+                    "type": "string",
+                    "description": "Token contract to sell",
+                },
+                "buy_token": {
+                    "type": "string",
+                    "description": "Token contract to receive",
+                    "default": "currency",
+                },
+                "amount": {
+                    "type": "number",
+                    "description": "Amount of sell_token to sell",
+                },
+                "slippage": {
+                    "type": "number",
+                    "description": "Max slippage percentage",
+                    "default": 1.0,
+                },
+                "deadline_min": {
+                    "type": "number",
+                    "description": "Deadline in minutes",
+                    "default": 1.0,
+                },
             },
             "required": ["private_key", "sell_token", "amount"],
         },
@@ -1722,7 +1825,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "token_contract": {"type": "string", "description": "Token contract to get price for"},
+                "token_contract": {
+                    "type": "string",
+                    "description": "Token contract to get price for",
+                },
                 "base_contract": {
                     "type": "string",
                     "description": "Base token to price against (default: 'currency')",
@@ -1739,7 +1845,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "private_key": {"type": "string", "description": "Private key to sign with"},
+                "private_key": {
+                    "type": "string",
+                    "description": "Private key to sign with",
+                },
                 "message": {"type": "string", "description": "Message to sign"},
             },
             "required": ["private_key", "message"],
@@ -1753,7 +1862,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "address": {"type": "string", "description": "Address that allegedly signed the message"},
+                "address": {
+                    "type": "string",
+                    "description": "Address that allegedly signed the message",
+                },
                 "message": {"type": "string", "description": "Original message"},
                 "signature": {"type": "string", "description": "Signature to verify"},
             },
@@ -1767,8 +1879,14 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "sender_private_key": {"type": "string", "description": "Sender's private key"},
-                "receiver_public_key": {"type": "string", "description": "Receiver's public key"},
+                "sender_private_key": {
+                    "type": "string",
+                    "description": "Sender's private key",
+                },
+                "receiver_public_key": {
+                    "type": "string",
+                    "description": "Receiver's public key",
+                },
                 "message": {"type": "string", "description": "Message to encrypt"},
             },
             "required": ["sender_private_key", "receiver_public_key", "message"],
@@ -1782,18 +1900,33 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {
-                "receiver_private_key": {"type": "string", "description": "Receiver's private key"},
-                "sender_public_key": {"type": "string", "description": "Sender's public key"},
-                "encrypted_message": {"type": "string", "description": "Encrypted message to decrypt"},
+                "receiver_private_key": {
+                    "type": "string",
+                    "description": "Receiver's private key",
+                },
+                "sender_public_key": {
+                    "type": "string",
+                    "description": "Sender's public key",
+                },
+                "encrypted_message": {
+                    "type": "string",
+                    "description": "Encrypted message to decrypt",
+                },
             },
-            "required": ["receiver_private_key", "sender_public_key", "encrypted_message"],
+            "required": [
+                "receiver_private_key",
+                "sender_public_key",
+                "encrypted_message",
+            ],
         },
         "unsafe": True,
         "handler": decrypt_message,
     },
 ]
 
-TOOL_REGISTRY: Dict[str, ToolHandler] = {spec["name"]: spec["handler"] for spec in TOOL_SPECS}
+TOOL_REGISTRY: Dict[str, ToolHandler] = {
+    spec["name"]: spec["handler"] for spec in TOOL_SPECS
+}
 TOOL_SPEC_BY_NAME: Dict[str, dict[str, Any]] = {
     spec["name"]: spec for spec in TOOL_SPECS
 }
@@ -1803,7 +1936,11 @@ TOOL_SPEC_BY_NAME: Dict[str, dict[str, Any]] = {
 async def list_tools() -> list[Tool]:
     """List all available tools for MCP clients."""
     return [
-        Tool(name=spec["name"], description=spec["description"], inputSchema=spec["schema"])
+        Tool(
+            name=spec["name"],
+            description=spec["description"],
+            inputSchema=spec["schema"],
+        )
         for spec in TOOL_SPECS
         if not spec.get("unsafe") or _unsafe_wallet_tools_enabled()
     ]

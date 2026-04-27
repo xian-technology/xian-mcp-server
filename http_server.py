@@ -52,6 +52,7 @@ def create_app(tool_specs: list[dict[str, Any]] | None = None) -> FastAPI:
     """
     if tool_specs is None:
         from xian_server import TOOL_SPECS
+
         tool_specs = TOOL_SPECS
 
     # Build lookup: name → {spec, handler}
