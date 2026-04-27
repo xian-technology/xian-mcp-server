@@ -1264,30 +1264,35 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0,<2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.12,<0.16" },
     { name = "uvicorn", specifier = ">=0.46.0,<0.47" },
-    { name = "xian-tech-py", extras = ["eth", "hd"], editable = "../xian-py" },
+    { name = "xian-tech-py", extras = ["eth", "hd"], specifier = ">=0.4.15,<0.5" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "xian-tech-accounts"
 version = "0.1.0"
-source = { editable = "../xian-contracting/packages/xian-accounts" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pynacl" },
 ]
-
-[package.metadata]
-requires-dist = [{ name = "pynacl", specifier = ">=1.5.0,<2" }]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/2e/507398162149c2b837f3960688cd55601a648dbbae4f0aaae17ac11e9ba2/xian_tech_accounts-0.1.0.tar.gz", hash = "sha256:1c57d9b6ee129a83b7593354819e83965b81e75f02792a96e959bcb4c3084e8d", size = 2574 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/ba/a38082f88a01fdd27ef0493dfe4b257cb8fded5422ab2f760878a607c631/xian_tech_accounts-0.1.0-py3-none-any.whl", hash = "sha256:a1eb69908eda0cdddbe8ec026af2e11c43cfc3a463551b1bc33e128fbc3def33", size = 2570 },
+]
 
 [[package]]
 name = "xian-tech-py"
 version = "0.4.15"
-source = { editable = "../xian-py" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "pynacl" },
     { name = "xian-tech-accounts" },
     { name = "xian-tech-runtime-types" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/4b/0e9215615f5aba5a0d90bbc3e1b8ddc36aa2dfad45acb02128fb988cca0e/xian_tech_py-0.4.15.tar.gz", hash = "sha256:7f099ab7a17ff8105817f5e71fd3a18c386da9c459b29c2d7378a6ae1509faff", size = 43196 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/1f/5f238109f5dd95247ee75339c3f0a8b77003d7a2a89303eada6719ed975a/xian_tech_py-0.4.15-py3-none-any.whl", hash = "sha256:c0a03dabbcb3ba2938ded7be77356cf4be8de122d88484a69f678a113e2b0dd2", size = 45812 },
 ]
 
 [package.optional-dependencies]
@@ -1299,31 +1304,14 @@ hd = [
     { name = "mnemonic" },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.5,<4" },
-    { name = "eth-account", marker = "extra == 'eth'", specifier = ">=0.13.7,<0.14" },
-    { name = "eth-utils", marker = "extra == 'eth'", specifier = ">=6.0.0,<7" },
-    { name = "fastapi", marker = "extra == 'app'", specifier = ">=0.136.1,<0.137" },
-    { name = "mnemonic", marker = "extra == 'hd'", specifier = ">=0.21,<0.22" },
-    { name = "pynacl", specifier = ">=1.5.0,<2" },
-    { name = "uvicorn", marker = "extra == 'app'", specifier = ">=0.46.0,<0.47" },
-    { name = "xian-tech-accounts", editable = "../xian-contracting/packages/xian-accounts" },
-    { name = "xian-tech-runtime-types", editable = "../xian-contracting/packages/xian-runtime-types" },
-]
-provides-extras = ["hd", "eth", "app"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.3,<10" },
-    { name = "pytest-cov", specifier = ">=7.1.0,<8" },
-    { name = "ruff", specifier = ">=0.15.12,<0.16" },
-]
-
 [[package]]
 name = "xian-tech-runtime-types"
 version = "0.1.1"
-source = { editable = "../xian-contracting/packages/xian-runtime-types" }
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/cb/157e686b2291a567ac26a3e61bf776119e48ac002fadabca3d363961f403/xian_tech_runtime_types-0.1.1.tar.gz", hash = "sha256:ed716f7bf54447104ef2d0146c057dddfbcb92f56c06b662b2bd563018c0f9ba", size = 6612 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/7f/070ac859f311c0689c0a7e816f082d6ad1d3d77a4e4650e08eb25f4df4dc/xian_tech_runtime_types-0.1.1-py3-none-any.whl", hash = "sha256:26904f780203408cccb72a9b46a8358a0fd54911010be51aa0e0de4498a472b9", size = 7812 },
+]
 
 [[package]]
 name = "yarl"

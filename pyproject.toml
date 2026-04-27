@@ -47,6 +47,3 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["F", "I"]
-
-[tool.uv.sources]
-xian-tech-py = { path = "../xian-py", editable = true }
