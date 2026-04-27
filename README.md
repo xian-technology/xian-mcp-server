@@ -20,6 +20,20 @@ See [CLAUDE.md](CLAUDE.md) for the full AI-facing tool reference and
 chain-specific concepts (chi, state-key format, address vs. public key,
 DEX workflow, error patterns).
 
+## Request Shape
+
+```mermaid
+flowchart LR
+  Assistant["AI assistant or script"] --> Transport["MCP stdio or HTTP REST"]
+  Transport --> Catalog["Shared tool catalog"]
+  Catalog --> SDK["xian-tech-py"]
+  SDK --> Node["Xian node RPC"]
+  SDK --> BDS["BDS indexed APIs"]
+  Catalog --> Wallets["Local wallet operations"]
+  Catalog --> Crypto["Local crypto helpers"]
+  Catalog --> DEX["DEX helper tools"]
+```
+
 ## Quick Start
 
 Build the Docker image (recommended):
