@@ -51,6 +51,19 @@ docker-compose build
 ```
 
 #### Option B: Using Docker directly
+For a local multi-repo workspace, build against the sibling SDK checkout:
+
+```bash
+docker buildx build --target local --load -t xian-mcp-server \
+  --build-context xian_py=../xian-py \
+  --build-context xian_accounts=../xian-contracting/packages/xian-accounts \
+  --build-context xian_runtime_types=../xian-contracting/packages/xian-runtime-types \
+  .
+```
+
+After the matching `xian-tech-py` package has been published, the default
+PyPI-backed build also works:
+
 ```bash
 docker build -t xian-mcp-server .
 ```

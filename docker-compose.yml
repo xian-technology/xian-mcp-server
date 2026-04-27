@@ -1,7 +1,13 @@
 services:
   # Standard MCP server (stdio transport for Claude Desktop, LM Studio, etc.)
   xian-mcp:
-    build: .
+    build:
+      context: .
+      target: local
+      additional_contexts:
+        xian_py: ../xian-py
+        xian_accounts: ../xian-contracting/packages/xian-accounts
+        xian_runtime_types: ../xian-contracting/packages/xian-runtime-types
     image: xian-mcp-server:latest
     environment:
       - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-1}
@@ -12,7 +18,13 @@ services:
 
   # HTTP API mode (REST bridge for web apps, AI tool-calling, etc.)
   xian-mcp-http:
-    build: .
+    build:
+      context: .
+      target: local
+      additional_contexts:
+        xian_py: ../xian-py
+        xian_accounts: ../xian-contracting/packages/xian-accounts
+        xian_runtime_types: ../xian-contracting/packages/xian-runtime-types
     image: xian-mcp-server:latest
     command: ["xian-mcp-http"]
     ports:
