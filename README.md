@@ -59,8 +59,8 @@ Smoke-test the MCP handshake:
 ```bash
 docker run --rm -i xian-mcp-server < test_requests.jsonl
 # or, without Docker:
-xian-mcp-server < test_requests.jsonl
-python xian_server.py < test_requests.jsonl
+uv run xian-mcp-server < test_requests.jsonl
+uv run python xian_server.py < test_requests.jsonl
 ```
 
 You should see two JSON responses: an `initialize` response (id 1) and a
@@ -106,7 +106,7 @@ LM Studio reloads MCP servers automatically when the file is saved.
 ```bash
 docker compose up xian-mcp-http             # via Docker Compose
 docker run -p 8100:8100 xian-mcp-server xian-mcp-http
-pip install -e . && xian-mcp-http           # bare-metal
+uv run xian-mcp-http                        # bare-metal
 ```
 
 Endpoints:
@@ -191,9 +191,9 @@ these into a `.env` file (template in `.env.example`) when using
 ## Validation
 
 ```bash
-pip install -e .[dev]
-pytest -q                       # deterministic unit tests
-pytest -q tests/integration     # live-network integration tests (configure tests/shared.py)
+uv sync --extra dev
+uv run pytest -q                       # deterministic unit tests
+uv run pytest -q tests/integration     # live-network integration tests (configure tests/shared.py)
 docker run --rm -i xian-mcp-server < test_requests.jsonl   # MCP handshake smoke test
 ```
 

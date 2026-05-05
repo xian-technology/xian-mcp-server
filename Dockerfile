@@ -4,6 +4,8 @@ FROM python:3.14-slim AS base
 # Set working directory
 WORKDIR /app
 
+COPY --from=ghcr.io/astral-sh/uv:0.6.11 /uv /uvx /bin/
+
 # Set Python unbuffered mode
 ENV PYTHONUNBUFFERED=1
 
@@ -29,7 +31,7 @@ COPY --from=xian_runtime_types . /tmp/build/xian-runtime-types
 COPY --from=xian_accounts . /tmp/build/xian-accounts
 COPY --from=xian_py . /tmp/build/xian-py
 
-RUN pip install --no-cache-dir \
+RUN uv pip install --system --no-cache \
     /tmp/build/xian-runtime-types \
     /tmp/build/xian-accounts \
     "/tmp/build/xian-py[eth,hd]" \
@@ -48,7 +50,7 @@ CMD ["xian-mcp-server"]
 FROM base AS pypi
 
 # Install dependencies and console entry points from published packages.
-RUN pip install --no-cache-dir .
+RUN uv pip install --system --no-cache .
 
 # Create non-root user
 RUN useradd -m -u 1000 mcpuser && \
