@@ -152,7 +152,7 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | Wallets            | `create_wallet`, `create_wallet_from_private_key`, `create_hd_wallet`, `create_hd_wallet_from_mnemonic`                 |
 | Balances / txs     | `get_balance`, `get_token_balances`, `send_tokens`, `send_transaction`, `get_transaction`, `simulate_transaction`        |
-| Contracts / state  | `get_contract`, `get_state`                                                                                              |
+| Contracts / state  | `get_contract_source`, `get_state`                                                                                              |
 | Token discovery    | `get_token_contract_by_symbol`, `get_token_data_by_contract`                                                             |
 | DEX                | `get_dex_price`, `buy_on_dex`, `sell_on_dex`                                                                             |
 | Indexed / BDS      | `get_bds_status`, `get_developer_rewards`, `list_blocks`, `get_block`, `get_block_by_hash`, `get_indexed_tx`, `list_txs_for_block`, `list_txs_by_sender`, `list_txs_by_contract`, `get_events_for_tx`, `list_events`, `get_state_history`, `get_state_for_tx`, `get_state_for_block` |

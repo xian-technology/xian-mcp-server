@@ -34,7 +34,7 @@ from xian_server import (
     get_bds_status,
     get_block,
     get_block_by_hash,
-    get_contract,
+    get_contract_source,
     get_developer_rewards,
     get_events_for_tx,
     get_indexed_tx,
@@ -259,7 +259,7 @@ class TestCryptography:
 
 class TestCompatibilityRegressions:
     @pytest.mark.asyncio
-    async def test_get_contract_uses_current_sdk_signature(self, monkeypatch):
+    async def test_get_contract_source_uses_current_sdk_signature(self, monkeypatch):
         class FakeXianAsync:
             def __init__(self, *_args, **_kwargs):
                 pass
@@ -270,12 +270,12 @@ class TestCompatibilityRegressions:
             async def __aexit__(self, *_args):
                 return False
 
-            async def get_contract(self, contract_name):
+            async def get_contract_source(self, contract_name):
                 return f"source for {contract_name}"
 
         monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
 
-        result = await get_contract("currency")
+        result = await get_contract_source("currency")
 
         assert result == {
             "contract_name": "currency",

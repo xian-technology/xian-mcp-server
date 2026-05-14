@@ -694,23 +694,23 @@ async def get_state(state_key: str) -> dict[str, Any] | str:
         return f"❌ Error getting state: {str(ex)}"
 
 
-async def get_contract(contract_name: str = "") -> dict[str, str] | str:
-    """Get and decompile contract source code."""
+async def get_contract_source(contract_name: str = "") -> dict[str, str] | str:
+    """Get contract source code."""
     if not contract_name.strip():
         return "❌ Error: Contract name is required"
 
-    logger.info("Getting contract %s", contract_name)
+    logger.info("Getting contract source %s", contract_name)
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-            source = await xian.get_contract(contract_name.strip())
+            source = await xian.get_contract_source(contract_name.strip())
             return {
                 "contract_name": contract_name.strip(),
                 "source": source,
             }
     except Exception as ex:
-        logger.error("Error getting contract: %s", ex)
-        return f"❌ Error getting contract: {str(ex)}"
+        logger.error("Error getting contract source: %s", ex)
+        return f"❌ Error getting contract source: {str(ex)}"
 
 
 async def simulate_transaction(
@@ -1700,7 +1700,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "handler": get_state,
     },
     {
-        "name": "get_contract",
+        "name": "get_contract_source",
         "description": "Get the source code of a smart contract",
         "schema": {
             "type": "object",
@@ -1712,7 +1712,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
             },
             "required": ["contract_name"],
         },
-        "handler": get_contract,
+        "handler": get_contract_source,
     },
     {
         "name": "get_token_contract_by_symbol",

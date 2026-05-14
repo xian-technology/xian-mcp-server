@@ -140,7 +140,7 @@ Dry-run transaction without executing on-chain.
 
 ### Smart Contract Operations
 
-#### get_contract(contract_name)
+#### get_contract_source(contract_name)
 Retrieves and decompiles contract source code.
 - Returns Python source code
 - Use to understand contract functionality
@@ -266,7 +266,7 @@ Decrypts received message.
 
 ### Workflow 4: Explore Contract
 ```
-1. get_contract(contract_name)
+1. get_contract_source(contract_name)
    - Review source code
 2. get_state(contract.variable)
    - Read specific state values
