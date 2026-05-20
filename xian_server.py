@@ -170,7 +170,7 @@ async def create_hd_wallet() -> dict[str, str] | str:
             "path": str(path),
             "xian_public_key": xian_wallet.public_key,
             "xian_private_key": xian_wallet.private_key,
-            "eth_public_key": eth_wallet.public_key,
+            "eth_public_key": eth_wallet.address,
             "eth_private_key": eth_wallet.private_key,
         }
     except Exception as ex:
@@ -198,7 +198,7 @@ async def create_hd_wallet_from_mnemonic(mnemonic: str = "") -> dict[str, str] |
             "path": str(path),
             "xian_public_key": xian_wallet.public_key,
             "xian_private_key": xian_wallet.private_key,
-            "eth_public_key": eth_wallet.public_key,
+            "eth_public_key": eth_wallet.address,
             "eth_private_key": eth_wallet.private_key,
         }
     except Exception as ex:
