@@ -18,6 +18,8 @@ import logging
 import os
 import sys
 from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Awaitable, Callable, Dict, List
 
 import aiohttp
@@ -40,9 +42,9 @@ logging.basicConfig(
 logger = logging.getLogger("xian-server")
 
 # Configuration
-CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-1")
-NODE_URL = os.environ.get("XIAN_NODE_URL", "https://node.xian.org")
-GRAPHQL = os.environ.get("XIAN_GRAPHQL", "https://node.xian.org/graphql")
+CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-testnet-12")
+NODE_URL = os.environ.get("XIAN_NODE_URL", "https://testnet.xian.org")
+GRAPHQL = os.environ.get("XIAN_GRAPHQL", "https://testnet.xian.org/graphql")
 UNSAFE_WALLET_TOOLS_ENV = "XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS"
 
 # === MCP APP INITIALIZATION ===
@@ -112,11 +114,479 @@ def _normalize_block_ref(block_ref: str | int | None) -> str | int:
     return _parse_positive_int(block_ref, field="Block reference")
 
 
+def _include_raw_payloads() -> bool:
+    value = os.environ.get("XIAN_INCLUDE_RAW", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _repair_indexed_payload(value: Any, *, include_raw: bool) -> Any:
+    if isinstance(value, list):
+        return [
+            _repair_indexed_payload(item, include_raw=include_raw) for item in value
+        ]
+    if not isinstance(value, dict):
+        return value
+
+    for item in value.values():
+        _repair_indexed_payload(item, include_raw=include_raw)
+
+    raw = value.get("raw")
+    if isinstance(raw, dict):
+        if value.get("tx_hash") is None and isinstance(raw.get("hash"), str):
+            value["tx_hash"] = raw["hash"]
+        if value.get("created") is None and isinstance(raw.get("created_at"), str):
+            value["created"] = raw["created_at"]
+        if not include_raw:
+            value.pop("raw", None)
+    return value
+
+
 async def _call_indexed_read(method_name: str, /, *args: Any, **kwargs: Any) -> Any:
     async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
         method = getattr(xian, method_name)
         result = await method(*args, **kwargs)
-        return normalize_for_transport(result)
+        include_raw = _include_raw_payloads()
+        normalized = normalize_for_transport(result, include_raw=True)
+        return _repair_indexed_payload(normalized, include_raw=include_raw)
+
+
+async def _fetch_rpc_json(path: str, params: dict[str, Any] | None = None) -> dict:
+    """Fetch a CometBFT RPC endpoint from the configured node."""
+    url = f"{NODE_URL.rstrip('/')}/{path.lstrip('/')}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url,
+            params=params or {},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            response.raise_for_status()
+            payload = await response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Unexpected RPC payload")
+            if "error" in payload:
+                raise ValueError(payload["error"])
+            return payload
+
+
+def _rpc_block_to_indexed(block_payload: dict[str, Any]) -> dict[str, Any] | None:
+    result = block_payload.get("result", {})
+    block = result.get("block")
+    if not isinstance(block, dict):
+        return None
+
+    block_id = result.get("block_id", {})
+    header = block.get("header", {})
+    data = block.get("data", {})
+    txs = data.get("txs") if isinstance(data, dict) else None
+
+    raw_height = header.get("height")
+    try:
+        height = int(raw_height) if raw_height is not None else None
+    except (TypeError, ValueError):
+        height = None
+
+    return {
+        "height": height,
+        "block_hash": block_id.get("hash"),
+        "tx_count": len(txs) if isinstance(txs, list) else 0,
+        "app_hash": header.get("app_hash"),
+        "block_time_iso": header.get("time"),
+    }
+
+
+async def _get_rpc_block(height: int) -> dict[str, Any] | None:
+    return _rpc_block_to_indexed(
+        await _fetch_rpc_json("block", params={"height": str(height)})
+    )
+
+
+async def _get_rpc_block_by_hash(block_hash: str) -> dict[str, Any] | None:
+    normalized_hash = block_hash.strip()
+    if not normalized_hash.lower().startswith("0x"):
+        normalized_hash = f"0x{normalized_hash}"
+    return _rpc_block_to_indexed(
+        await _fetch_rpc_json("block_by_hash", params={"hash": normalized_hash})
+    )
+
+
+async def _list_rpc_blocks(limit: int, offset: int) -> list[dict[str, Any]]:
+    status = await _fetch_rpc_json("status")
+    sync_info = status.get("result", {}).get("sync_info", {})
+    latest = int(sync_info["latest_block_height"])
+    earliest = int(sync_info.get("earliest_block_height") or 1)
+    start = max(latest - offset, earliest)
+    heights = list(range(start, max(start - limit, earliest - 1), -1))
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch_height(height: int) -> dict[str, Any] | None:
+        async with semaphore:
+            return await _get_rpc_block(height)
+
+    blocks = await asyncio.gather(*(fetch_height(height) for height in heights))
+    return [block for block in blocks if block is not None]
+
+
+def _graphql_transaction_node_to_dict(node: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tx_hash": node.get("hash"),
+        "block_height": _decode_graphql_int(node.get("blockHeight")),
+        "block_hash": node.get("blockHash"),
+        "sender": node.get("sender"),
+        "nonce": _decode_graphql_int(node.get("nonce")),
+        "contract": node.get("contract"),
+        "function": node.get("function"),
+        "success": node.get("success"),
+        "chi_used": _decode_graphql_int(node.get("chiUsed")),
+        "created": node.get("createdAt"),
+    }
+
+
+def _graphql_state_change_node_to_dict(node: dict[str, Any]) -> dict[str, Any]:
+    tx = node.get("transactionByTxHash")
+    return {
+        "key": node.get("key"),
+        "value": _decode_graphql_state_value(node.get("newValue")),
+        "tx_hash": node.get("txHash"),
+        "block_height": (
+            _decode_graphql_int(tx.get("blockHeight")) if isinstance(tx, dict) else None
+        ),
+        "created": node.get("createdAt"),
+    }
+
+
+def _decode_graphql_int(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _decode_graphql_state_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        if set(value) == {"__fixed__"}:
+            return str(value["__fixed__"])
+        return {
+            key: _decode_graphql_state_value(item) for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_decode_graphql_state_value(item) for item in value]
+    return value
+
+
+_GRAPHQL_TX_FIELDS = """
+hash
+contract
+function
+sender
+nonce
+chiUsed
+blockHash
+blockHeight
+success
+createdAt
+"""
+
+
+_GRAPHQL_STATE_CHANGE_FIELDS = """
+key
+newValue
+txHash
+createdAt
+transactionByTxHash {
+  blockHeight
+}
+"""
+
+
+async def _graphql_get_indexed_tx(tx_hash: str) -> dict[str, Any] | None:
+    query = f"""
+    query GetIndexedTx($hash: String!) {{
+      transactionByHash(hash: $hash) {{
+        {_GRAPHQL_TX_FIELDS}
+      }}
+    }}
+    """
+    data = await fetch_graphql(query=query, variables={"hash": tx_hash})
+    node = data.get("transactionByHash")
+    if not isinstance(node, dict):
+        return None
+    return _graphql_transaction_node_to_dict(node)
+
+
+async def _graphql_list_txs_by_condition(
+    condition: dict[str, Any],
+    *,
+    limit: int,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    query = f"""
+    query ListTransactions(
+      $condition: TransactionCondition!
+      $limit: Int!
+      $offset: Int!
+    ) {{
+      allTransactions(
+        first: $limit
+        offset: $offset
+        orderBy: BLOCK_HEIGHT_DESC
+        condition: $condition
+      ) {{
+        nodes {{
+          {_GRAPHQL_TX_FIELDS}
+        }}
+      }}
+    }}
+    """
+    data = await fetch_graphql(
+        query=query,
+        variables={"condition": condition, "limit": limit, "offset": offset},
+    )
+    nodes = data.get("allTransactions", {}).get("nodes", [])
+    return [
+        _graphql_transaction_node_to_dict(node)
+        for node in nodes
+        if isinstance(node, dict)
+    ]
+
+
+async def _graphql_get_state_changes(
+    *,
+    condition: dict[str, Any],
+    limit: int,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    query = f"""
+    query ListStateChanges(
+      $condition: StateChangeCondition!
+      $limit: Int!
+      $offset: Int!
+    ) {{
+      allStateChanges(
+        first: $limit
+        offset: $offset
+        orderBy: CHANGE_ID_DESC
+        condition: $condition
+      ) {{
+        nodes {{
+          {_GRAPHQL_STATE_CHANGE_FIELDS}
+        }}
+      }}
+    }}
+    """
+    data = await fetch_graphql(
+        query=query,
+        variables={"condition": condition, "limit": limit, "offset": offset},
+    )
+    nodes = data.get("allStateChanges", {}).get("nodes", [])
+    return [
+        _graphql_state_change_node_to_dict(node)
+        for node in nodes
+        if isinstance(node, dict)
+    ]
+
+
+async def _graphql_get_state_for_block(
+    block_ref: str | int,
+) -> list[dict[str, Any]]:
+    if isinstance(block_ref, int):
+        tx_condition: dict[str, Any] = {"blockHeight": block_ref}
+    else:
+        tx_condition = {"blockHash": block_ref.removeprefix("0x").lower()}
+
+    query = f"""
+    query StateForBlock($condition: TransactionCondition!) {{
+      allTransactions(
+        first: 250
+        orderBy: BLOCK_HEIGHT_DESC
+        condition: $condition
+      ) {{
+        nodes {{
+          stateChangesByTxHash(first: 1000, orderBy: CHANGE_ID_ASC) {{
+            nodes {{
+              {_GRAPHQL_STATE_CHANGE_FIELDS}
+            }}
+          }}
+        }}
+      }}
+    }}
+    """
+    data = await fetch_graphql(query=query, variables={"condition": tx_condition})
+    tx_nodes = data.get("allTransactions", {}).get("nodes", [])
+    changes: list[dict[str, Any]] = []
+    for tx_node in tx_nodes:
+        if not isinstance(tx_node, dict):
+            continue
+        state_nodes = (
+            tx_node.get("stateChangesByTxHash", {}).get("nodes", [])
+            if isinstance(tx_node.get("stateChangesByTxHash"), dict)
+            else []
+        )
+        changes.extend(
+            _graphql_state_change_node_to_dict(node)
+            for node in state_nodes
+            if isinstance(node, dict)
+        )
+    return changes
+
+
+async def _graphql_get_contract_source(contract_name: str) -> str | None:
+    query = """
+    query ContractSource($name: String!) {
+      contractByName(name: $name) {
+        source
+      }
+    }
+    """
+    data = await fetch_graphql(query=query, variables={"name": contract_name})
+    node = data.get("contractByName")
+    if not isinstance(node, dict):
+        return None
+    source = node.get("source")
+    return source if isinstance(source, str) else None
+
+
+async def _graphql_get_token_balances(
+    address: str,
+    *,
+    limit: int,
+    offset: int,
+    include_zero: bool,
+) -> dict[str, Any]:
+    query = """
+    query TokenBalances($suffix: String!) {
+      allStates(
+        first: 1000
+        orderBy: KEY_ASC
+        filter: {key: {endsWith: $suffix}}
+      ) {
+        nodes {
+          key
+          value
+          updatedAt
+        }
+      }
+    }
+    """
+    suffix = f".balances:{address}"
+    data = await fetch_graphql(query=query, variables={"suffix": suffix})
+    nodes = data.get("allStates", {}).get("nodes", [])
+
+    def is_zero(value: Any) -> bool:
+        if value is None:
+            return True
+        value = _decode_graphql_state_value(value)
+        try:
+            return Decimal(str(value)) == 0
+        except Exception:
+            return False
+
+    items: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        key = node.get("key")
+        if not isinstance(key, str) or ".balances:" not in key:
+            continue
+        value = node.get("value")
+        decoded_value = _decode_graphql_state_value(value)
+        if not include_zero and is_zero(decoded_value):
+            continue
+        contract = key.split(".balances:", 1)[0]
+        items.append(
+            {
+                "contract": contract,
+                "balance": None if decoded_value is None else str(decoded_value),
+                "name": None,
+                "symbol": None,
+                "logo_url": None,
+                "last_tx_hash": None,
+                "last_block_height": None,
+                "updated_at": node.get("updatedAt"),
+            }
+        )
+
+    paged_items = items[offset : offset + limit]
+    return {
+        "available": True,
+        "address": address,
+        "total": len(items),
+        "limit": limit,
+        "offset": offset,
+        "items": paged_items,
+    }
+
+
+async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
+    query = """
+    query DeveloperRewards($key: String!) {
+      allRewards(
+        first: 1000
+        orderBy: ROW_ID_ASC
+        condition: {type: "developer", recipientKey: $key}
+      ) {
+        nodes {
+          txHash
+          value
+          createdAt
+          transactionByTxHash {
+            blockHeight
+            contract
+          }
+        }
+      }
+    }
+    """
+    data = await fetch_graphql(query=query, variables={"key": recipient_key})
+    nodes = [
+        node
+        for node in data.get("allRewards", {}).get("nodes", [])
+        if isinstance(node, dict)
+    ]
+    total = Decimal("0")
+    tx_hashes: set[str] = set()
+    contracts: set[str] = set()
+    heights: list[int] = []
+    created_values: list[str] = []
+
+    for node in nodes:
+        try:
+            total += Decimal(str(node.get("value", "0")))
+        except Exception:
+            pass
+        tx_hash = node.get("txHash")
+        if isinstance(tx_hash, str):
+            tx_hashes.add(tx_hash)
+        created = node.get("createdAt")
+        if isinstance(created, str):
+            created_values.append(created)
+        tx = node.get("transactionByTxHash")
+        if isinstance(tx, dict):
+            height = tx.get("blockHeight")
+            height = _decode_graphql_int(height)
+            if isinstance(height, int) and not isinstance(height, bool):
+                heights.append(height)
+            contract = tx.get("contract")
+            if isinstance(contract, str):
+                contracts.add(contract)
+
+    return {
+        "recipient_key": recipient_key,
+        "total_rewards": str(total),
+        "reward_count": len(nodes),
+        "tx_count": len(tx_hashes),
+        "contract_count": len(contracts),
+        "first_block_height": min(heights) if heights else None,
+        "last_block_height": max(heights) if heights else None,
+        "first_reward_at": created_values[0] if created_values else None,
+        "last_reward_at": created_values[-1] if created_values else None,
+    }
 
 
 # === CORE TOOLS (kept compatible with existing tests) ===
@@ -267,6 +737,16 @@ async def get_token_balances(
             )
             return normalize_for_transport(balances)
     except Exception as ex:
+        logger.info("BDS token balances unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_token_balances(
+            address.strip(),
+            limit=limit,
+            offset=offset,
+            include_zero=include_zero,
+        )
+    except Exception as ex:
         logger.error("Error getting token balances: %s", ex)
         return f"❌ Error getting token balances: {str(ex)}"
 
@@ -275,6 +755,34 @@ async def get_bds_status() -> dict[str, Any] | str:
     """Get indexed/BDS availability and synchronization status."""
     try:
         return await _call_indexed_read("get_bds_status")
+    except Exception as ex:
+        logger.info("BDS status unavailable, falling back to RPC status: %s", ex)
+
+    try:
+        status = await _fetch_rpc_json("status")
+        sync_info = status.get("result", {}).get("sync_info", {})
+        latest_height = sync_info.get("latest_block_height")
+        try:
+            latest_height = int(latest_height) if latest_height is not None else None
+        except (TypeError, ValueError):
+            latest_height = None
+        return {
+            "available": False,
+            "worker_running": False,
+            "catchup_running": False,
+            "catching_up": bool(sync_info.get("catching_up")),
+            "queue_depth": 0,
+            "current_block_height": latest_height,
+            "height_lag": None,
+            "indexed_height": None,
+            "spool_pending_count": 0,
+            "alerts": [
+                {
+                    "level": "warning",
+                    "message": "BDS ABCI read surface is unavailable on this node",
+                }
+            ],
+        }
     except Exception as ex:
         logger.error("Error getting BDS status: %s", ex)
         return f"❌ Error getting BDS status: {str(ex)}"
@@ -290,6 +798,11 @@ async def get_developer_rewards(recipient_key: str = "") -> dict[str, Any] | str
             "get_developer_rewards",
             recipient_key.strip(),
         )
+    except Exception as ex:
+        logger.info("BDS developer rewards unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_developer_rewards(recipient_key.strip())
     except Exception as ex:
         logger.error("Error getting developer rewards: %s", ex)
         return f"❌ Error getting developer rewards: {str(ex)}"
@@ -313,6 +826,11 @@ async def list_blocks(
             offset=offset,
         )
     except Exception as ex:
+        logger.info("BDS block listing unavailable, falling back to RPC: %s", ex)
+
+    try:
+        return await _list_rpc_blocks(limit=limit, offset=offset)
+    except Exception as ex:
         logger.error("Error listing blocks: %s", ex)
         return f"❌ Error listing blocks: {str(ex)}"
 
@@ -325,7 +843,14 @@ async def get_block(height: int) -> dict[str, Any] | None | str:
         return f"❌ Error: {str(ex)}"
 
     try:
-        return await _call_indexed_read("get_block", height)
+        result = await _call_indexed_read("get_block", height)
+        if result is not None:
+            return result
+    except Exception as ex:
+        logger.info("BDS block lookup unavailable, falling back to RPC: %s", ex)
+
+    try:
+        return await _get_rpc_block(height)
     except Exception as ex:
         logger.error("Error getting block: %s", ex)
         return f"❌ Error getting block: {str(ex)}"
@@ -337,7 +862,14 @@ async def get_block_by_hash(block_hash: str = "") -> dict[str, Any] | None | str
         return "❌ Error: Block hash is required"
 
     try:
-        return await _call_indexed_read("get_block_by_hash", block_hash.strip())
+        result = await _call_indexed_read("get_block_by_hash", block_hash.strip())
+        if result is not None:
+            return result
+    except Exception as ex:
+        logger.info("BDS block hash lookup unavailable, falling back to RPC: %s", ex)
+
+    try:
+        return await _get_rpc_block_by_hash(block_hash.strip())
     except Exception as ex:
         logger.error("Error getting block by hash: %s", ex)
         return f"❌ Error getting block by hash: {str(ex)}"
@@ -349,7 +881,14 @@ async def get_indexed_tx(tx_hash: str = "") -> dict[str, Any] | None | str:
         return "❌ Error: Transaction hash is required"
 
     try:
-        return await _call_indexed_read("get_indexed_tx", tx_hash.strip())
+        result = await _call_indexed_read("get_indexed_tx", tx_hash.strip())
+        if result is not None:
+            return result
+    except Exception as ex:
+        logger.info("BDS transaction lookup unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_indexed_tx(tx_hash.strip())
     except Exception as ex:
         logger.error("Error getting indexed transaction: %s", ex)
         return f"❌ Error getting indexed transaction: {str(ex)}"
@@ -366,6 +905,20 @@ async def list_txs_for_block(
 
     try:
         return await _call_indexed_read("list_txs_for_block", block_ref)
+    except Exception as ex:
+        logger.info("BDS block transaction list unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        condition = (
+            {"blockHeight": block_ref}
+            if isinstance(block_ref, int)
+            else {"blockHash": block_ref.removeprefix("0x").lower()}
+        )
+        return await _graphql_list_txs_by_condition(
+            condition,
+            limit=1000,
+            offset=0,
+        )
     except Exception as ex:
         logger.error("Error listing transactions for block: %s", ex)
         return f"❌ Error listing transactions for block: {str(ex)}"
@@ -394,6 +947,15 @@ async def list_txs_by_sender(
             offset=offset,
         )
     except Exception as ex:
+        logger.info("BDS sender transaction list unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_list_txs_by_condition(
+            {"sender": sender.strip()},
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
         logger.error("Error listing transactions by sender: %s", ex)
         return f"❌ Error listing transactions by sender: {str(ex)}"
 
@@ -417,6 +979,15 @@ async def list_txs_by_contract(
         return await _call_indexed_read(
             "list_txs_by_contract",
             contract.strip(),
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
+        logger.info("BDS contract transaction list unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_list_txs_by_condition(
+            {"contract": contract.strip()},
             limit=limit,
             offset=offset,
         )
@@ -495,6 +1066,15 @@ async def get_state_history(
             offset=offset,
         )
     except Exception as ex:
+        logger.info("BDS state history unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_state_changes(
+            condition={"key": key.strip()},
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as ex:
         logger.error("Error getting state history: %s", ex)
         return f"❌ Error getting state history: {str(ex)}"
 
@@ -506,6 +1086,15 @@ async def get_state_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
 
     try:
         return await _call_indexed_read("get_state_for_tx", tx_hash.strip())
+    except Exception as ex:
+        logger.info("BDS state-for-tx unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_state_changes(
+            condition={"txHash": tx_hash.strip()},
+            limit=1000,
+            offset=0,
+        )
     except Exception as ex:
         logger.error("Error getting state for transaction: %s", ex)
         return f"❌ Error getting state for transaction: {str(ex)}"
@@ -522,6 +1111,11 @@ async def get_state_for_block(
 
     try:
         return await _call_indexed_read("get_state_for_block", block_ref)
+    except Exception as ex:
+        logger.info("BDS state-for-block unavailable, falling back to GraphQL: %s", ex)
+
+    try:
+        return await _graphql_get_state_for_block(block_ref)
     except Exception as ex:
         logger.error("Error getting state for block: %s", ex)
         return f"❌ Error getting state for block: {str(ex)}"
@@ -558,6 +1152,12 @@ async def list_shielded_output_tags(
             after_id=after_id,
         )
     except Exception as ex:
+        status = await get_bds_status()
+        if isinstance(status, dict) and status.get("available") is False:
+            return (
+                "❌ Error: BDS shielded output tag index is unavailable on "
+                "the configured node"
+            )
         logger.error("Error listing shielded output tags: %s", ex)
         return f"❌ Error listing shielded output tags: {str(ex)}"
 
@@ -592,6 +1192,12 @@ async def list_shielded_wallet_history(
             after_note_index=after_note_index,
         )
     except Exception as ex:
+        status = await get_bds_status()
+        if isinstance(status, dict) and status.get("available") is False:
+            return (
+                "❌ Error: BDS shielded wallet history index is unavailable "
+                "on the configured node"
+            )
         logger.error("Error listing shielded wallet history: %s", ex)
         return f"❌ Error listing shielded wallet history: {str(ex)}"
 
@@ -704,6 +1310,8 @@ async def get_contract_source(contract_name: str = "") -> dict[str, str] | str:
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
             source = await xian.get_contract_source(contract_name.strip())
+            if source is None:
+                source = await _graphql_get_contract_source(contract_name.strip())
             return {
                 "contract_name": contract_name.strip(),
                 "source": source,
@@ -919,7 +1527,7 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
         nodes {
           key
           value
-          updated
+          updatedAt
         }
       }
     }
@@ -943,6 +1551,25 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
         return f"❌ Error getting token data: {str(ex)}"
 
 
+def _deadline_value(*, minutes_from_now: float) -> dict[str, list[int]]:
+    future = datetime.now(UTC) + timedelta(minutes=minutes_from_now)
+    return {
+        "__time__": [
+            future.year,
+            future.month,
+            future.day,
+            future.hour,
+            future.minute,
+            future.second,
+            future.microsecond,
+        ]
+    }
+
+
+def _decimal_payload_value(value: int | float | str | Decimal) -> Decimal:
+    return Decimal(str(value))
+
+
 async def buy_on_dex(
     private_key: str = "",
     buy_token: str = "",
@@ -964,16 +1591,18 @@ async def buy_on_dex(
     logger.info("Buying %s %s with %s", amount, buy_token, sell_token)
 
     try:
+        amount_value = _decimal_payload_value(amount)
+        slippage_value = _decimal_payload_value(slippage)
         return await send_transaction(
             private_key=private_key,
-            contract="con_dex_noob_wrapper",
+            contract="con_dex_helper",
             function="buy",
             kwargs={
                 "buy_token": buy_token.strip(),
                 "sell_token": sell_token.strip(),
-                "amount": amount,
-                "slippage": slippage,
-                "deadline_min": deadline_min,
+                "amount": amount_value,
+                "slippage": slippage_value,
+                "deadline": _deadline_value(minutes_from_now=deadline_min),
             },
         )
     except Exception as ex:
@@ -990,9 +1619,6 @@ async def sell_on_dex(
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
     """Sell tokens on the DEX."""
-    if amount != round(amount, 8):
-        amount *= 0.9999
-
     if not private_key.strip():
         return "❌ Error: Private key is required"
     if not sell_token.strip():
@@ -1005,16 +1631,20 @@ async def sell_on_dex(
     logger.info("Selling %s %s for %s", amount, sell_token, buy_token)
 
     try:
+        amount_value = _decimal_payload_value(amount)
+        if amount_value != amount_value.quantize(Decimal("0.00000001")):
+            amount_value *= Decimal("0.9999")
+        slippage_value = _decimal_payload_value(slippage)
         return await send_transaction(
             private_key=private_key,
-            contract="con_dex_noob_wrapper",
+            contract="con_dex_helper",
             function="sell",
             kwargs={
                 "sell_token": sell_token.strip(),
                 "buy_token": buy_token.strip(),
-                "amount": amount,
-                "slippage": slippage,
-                "deadline_min": deadline_min,
+                "amount": amount_value,
+                "slippage": slippage_value,
+                "deadline": _deadline_value(minutes_from_now=deadline_min),
             },
         )
     except Exception as ex:
@@ -1097,31 +1727,21 @@ async def get_tokens() -> list[dict]:
           value
         }
       }
-      tokenContracts: allContracts(
-        condition: { xsc0001: true }
-      ) {
-        nodes {
-          name
-        }
-      }
     }
     """
 
     try:
         data = await fetch_graphql(query=query)
 
-        valid_contracts = {node["name"] for node in data["tokenContracts"]["nodes"]}
-
         tokens: list[dict[str, str]] = []
         for node in data["tokenSymbols"]["nodes"]:
             contract = node["key"].split(".metadata:token_symbol")[0]
-            if contract in valid_contracts:
-                tokens.append(
-                    {
-                        "token_contract": contract.lower(),
-                        "token_symbol": node["value"].upper(),
-                    }
-                )
+            tokens.append(
+                {
+                    "token_contract": contract.lower(),
+                    "token_symbol": str(node["value"]).upper(),
+                }
+            )
 
         return tokens
 

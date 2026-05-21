@@ -193,7 +193,7 @@ Buys tokens on the DEX.
 - `amount`: Amount of `buy_token` to receive
 - `slippage`: Maximum acceptable slippage (default 1%)
 - `deadline_min`: Transaction deadline in minutes
-- Uses contract `con_dex_noob_wrapper`
+- Uses contract `con_dex_helper`
 - **Confirm trade details with user**
 
 **Workflow:**
@@ -319,9 +319,9 @@ async with XianAsync(NODE_URL, wallet=wallet) as xian:
 
 ### Network Configuration
 Default values (can be configured via environment variables):
-- **NODE_URL**: `https://node.xian.org`
-- **CHAIN_ID**: `xian-1`
-- **GRAPHQL**: `https://node.xian.org/graphql`
+- **NODE_URL**: `https://testnet.xian.org`
+- **CHAIN_ID**: `xian-testnet-12`
+- **GRAPHQL**: `https://testnet.xian.org/graphql`
 
 Testnet:
 - **NODE_URL**: `https://testnet.xian.org`

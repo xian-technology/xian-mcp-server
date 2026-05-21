@@ -165,9 +165,9 @@ Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 
 | Variable           | Purpose                                                | Default                                |
 | ------------------ | ------------------------------------------------------ | -------------------------------------- |
-| `XIAN_NODE_URL`    | Node RPC URL                                           | `https://node.xian.org`                |
-| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-1`                               |
-| `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `https://node.xian.org/graphql`        |
+| `XIAN_NODE_URL`    | Node RPC URL                                           | `https://testnet.xian.org`             |
+| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-testnet-12`                      |
+| `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `https://testnet.xian.org/graphql`     |
 | `XIAN_INCLUDE_RAW` | Include SDK `raw` payloads in MCP / HTTP responses     | `false`                                |
 
 For testnet, use `https://testnet.xian.org` and `xian-testnet-12`. Drop

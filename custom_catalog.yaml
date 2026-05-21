@@ -39,13 +39,13 @@ registry:
     secrets:
       - name: XIAN_GRAPHQL
         env: XIAN_GRAPHQL
-        example: "https://node.xian.org/graphql"
+        example: "https://testnet.xian.org/graphql"
       - name: XIAN_NODE_URL
         env: XIAN_NODE_URL
-        example: "https://node.xian.org"
+        example: "https://testnet.xian.org"
       - name: XIAN_CHAIN_ID
         env: XIAN_CHAIN_ID
-        example: "xian-1"
+        example: "xian-testnet-12"
     metadata:
       category: integration
       tags:

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
 
+from datetime import UTC, datetime
+from decimal import Decimal
+
 import pytest
 from xian_py.models import (
     TokenBalancePage,
@@ -36,6 +39,7 @@ from xian_server import (
     get_block_by_hash,
     get_contract_source,
     get_developer_rewards,
+    get_dex_price,
     get_events_for_tx,
     get_indexed_tx,
     get_state,
@@ -191,6 +195,94 @@ class TestInputValidation:
         assert result == "❌ Error: Amount must be positive"
 
 
+class TestTokenGraphQL:
+    @pytest.mark.asyncio
+    async def test_get_token_contract_by_symbol_uses_metadata_state(
+        self, monkeypatch
+    ):
+        async def fake_fetch_graphql(query, **_kwargs):
+            assert ".metadata:token_symbol" in query
+            assert "allContracts" not in query
+            assert "xsc0001" not in query
+            return {
+                "tokenSymbols": {
+                    "nodes": [
+                        {
+                            "key": "currency.metadata:token_symbol",
+                            "value": "XIAN",
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await get_token_contract_by_symbol("xian")
+
+        assert result == {"token_contracts": ["currency"], "count": 1}
+
+    @pytest.mark.asyncio
+    async def test_get_token_data_by_contract_uses_current_state_field(
+        self, monkeypatch
+    ):
+        async def fake_fetch_graphql(query, variables=None, **_kwargs):
+            assert "updatedAt" in query
+            assert "updated\n" not in query
+            assert variables["symbol"] == "currency.metadata:token_symbol"
+            return {
+                "tokenStates": {
+                    "nodes": [
+                        {
+                            "key": "currency.metadata:token_symbol",
+                            "value": "XIAN",
+                            "updatedAt": "2026-05-21T14:00:00+00:00",
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await get_token_data_by_contract("currency")
+
+        assert result["tokenStates"]["nodes"][0]["updatedAt"].startswith("2026-")
+
+    @pytest.mark.asyncio
+    async def test_graphql_token_balances_decode_fixed_values(self, monkeypatch):
+        async def fake_fetch_graphql(query, variables=None, **_kwargs):
+            assert "updatedAt" in query
+            assert variables == {"suffix": ".balances:wallet123"}
+            return {
+                "allStates": {
+                    "nodes": [
+                        {
+                            "key": "currency.balances:wallet123",
+                            "value": {"__fixed__": "12.5"},
+                            "updatedAt": "2026-05-21T14:00:00+00:00",
+                        },
+                        {
+                            "key": "con_zero.balances:wallet123",
+                            "value": {"__fixed__": "0"},
+                            "updatedAt": "2026-05-21T14:00:01+00:00",
+                        },
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await xian_server._graphql_get_token_balances(
+            "wallet123",
+            limit=10,
+            offset=0,
+            include_zero=False,
+        )
+
+        assert result["total"] == 1
+        assert result["items"][0]["contract"] == "currency"
+        assert result["items"][0]["balance"] == "12.5"
+
+
 class TestCryptography:
     @pytest.mark.asyncio
     async def test_sign_message(self):
@@ -281,6 +373,185 @@ class TestCompatibilityRegressions:
             "contract_name": "currency",
             "source": "source for currency",
         }
+
+    @pytest.mark.asyncio
+    async def test_get_contract_source_falls_back_to_graphql(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_contract_source(self, contract_name):
+                assert contract_name == "currency"
+                return None
+
+        async def fake_graphql_source(contract_name):
+            assert contract_name == "currency"
+            return "indexed source"
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+        monkeypatch.setattr(
+            xian_server,
+            "_graphql_get_contract_source",
+            fake_graphql_source,
+        )
+
+        result = await get_contract_source("currency")
+
+        assert result == {
+            "contract_name": "currency",
+            "source": "indexed source",
+        }
+
+    @pytest.mark.asyncio
+    async def test_graphql_contract_source_uses_current_schema(self, monkeypatch):
+        async def fake_fetch_graphql(query, variables=None, **_kwargs):
+            assert "source" in query
+            assert "code" not in query
+            assert variables == {"name": "currency"}
+            return {"contractByName": {"source": "contract source"}}
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        assert await xian_server._graphql_get_contract_source("currency") == (
+            "contract source"
+        )
+
+    @pytest.mark.asyncio
+    async def test_graphql_state_changes_use_current_schema(self, monkeypatch):
+        async def fake_fetch_graphql(query, variables=None, **_kwargs):
+            assert "newValue" in query
+            assert "createdAt" in query
+            assert "CHANGE_ID_DESC" in query
+            assert "CREATED_DESC" not in query
+            assert variables == {
+                "condition": {"key": "currency.balances:alice"},
+                "limit": 1,
+                "offset": 0,
+            }
+            return {
+                "allStateChanges": {
+                    "nodes": [
+                        {
+                            "key": "currency.balances:alice",
+                            "newValue": "5",
+                            "txHash": "tx-1",
+                            "createdAt": "2026-05-21T14:00:00+00:00",
+                            "transactionByTxHash": {"blockHeight": "100"},
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await xian_server._graphql_get_state_changes(
+            condition={"key": "currency.balances:alice"},
+            limit=1,
+        )
+
+        assert result == [
+            {
+                "key": "currency.balances:alice",
+                "value": "5",
+                "tx_hash": "tx-1",
+                "block_height": 100,
+                "created": "2026-05-21T14:00:00+00:00",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_graphql_developer_rewards_use_current_schema(self, monkeypatch):
+        async def fake_fetch_graphql(query, variables=None, **_kwargs):
+            assert "recipientKey" in query
+            assert "ROW_ID_ASC" in query
+            assert "createdAt" in query
+            assert "CREATED_ASC" not in query
+            assert variables == {"key": "dev-key"}
+            return {
+                "allRewards": {
+                    "nodes": [
+                        {
+                            "txHash": "tx-1",
+                            "value": "2.5",
+                            "createdAt": "2026-05-21T14:00:00+00:00",
+                            "transactionByTxHash": {
+                                "blockHeight": "100",
+                                "contract": "currency",
+                            },
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await xian_server._graphql_get_developer_rewards("dev-key")
+
+        assert result["total_rewards"] == "2.5"
+        assert result["first_reward_at"] == "2026-05-21T14:00:00+00:00"
+        assert result["last_block_height"] == 100
+
+    @pytest.mark.asyncio
+    async def test_block_reads_fall_back_to_rpc_when_bds_returns_none(
+        self,
+        monkeypatch,
+    ):
+        async def fake_indexed_read(method_name, *args, **kwargs):
+            assert method_name in {"get_block", "get_block_by_hash"}
+            return None
+
+        async def fake_get_rpc_block(height):
+            assert height == 100
+            return {"height": height, "block_hash": "abc"}
+
+        async def fake_get_rpc_block_by_hash(block_hash):
+            assert block_hash == "abc"
+            return {"height": 100, "block_hash": block_hash}
+
+        monkeypatch.setattr(xian_server, "_call_indexed_read", fake_indexed_read)
+        monkeypatch.setattr(xian_server, "_get_rpc_block", fake_get_rpc_block)
+        monkeypatch.setattr(
+            xian_server,
+            "_get_rpc_block_by_hash",
+            fake_get_rpc_block_by_hash,
+        )
+
+        assert await get_block(100) == {"height": 100, "block_hash": "abc"}
+        assert await get_block_by_hash("abc") == {
+            "height": 100,
+            "block_hash": "abc",
+        }
+
+    @pytest.mark.asyncio
+    async def test_transaction_list_falls_back_to_graphql_when_bds_fails(
+        self,
+        monkeypatch,
+    ):
+        async def fake_indexed_read(*_args, **_kwargs):
+            raise RuntimeError("bds unavailable")
+
+        async def fake_graphql_list(condition, *, limit, offset):
+            assert condition == {"sender": "alice"}
+            assert limit == 5
+            assert offset == 2
+            return [{"tx_hash": "tx-1", "sender": "alice"}]
+
+        monkeypatch.setattr(xian_server, "_call_indexed_read", fake_indexed_read)
+        monkeypatch.setattr(
+            xian_server,
+            "_graphql_list_txs_by_condition",
+            fake_graphql_list,
+        )
+
+        result = await list_txs_by_sender("alice", limit=5, offset=2)
+
+        assert result == [{"tx_hash": "tx-1", "sender": "alice"}]
 
     @pytest.mark.asyncio
     async def test_get_state_preserves_requested_key(self, monkeypatch):
@@ -493,11 +764,132 @@ class TestCompatibilityRegressions:
 
         assert buy_result == {"tx_hash": "ok"}
         assert sell_result == {"tx_hash": "ok"}
+        assert calls[0]["contract"] == "con_dex_helper"
+        assert calls[1]["contract"] == "con_dex_helper"
         assert calls[0]["kwargs"]["sell_token"] == "currency"
         assert calls[1]["kwargs"]["buy_token"] == "currency"
+        assert "deadline" in calls[0]["kwargs"]
+        assert "deadline" in calls[1]["kwargs"]
+        assert "deadline_min" not in calls[0]["kwargs"]
+        assert "deadline_min" not in calls[1]["kwargs"]
+
+    @pytest.mark.asyncio
+    async def test_buy_on_dex_uses_decimal_payload_and_xian_deadline(
+        self,
+        monkeypatch,
+    ):
+        class FixedDateTime:
+            @classmethod
+            def now(cls, tz):
+                assert tz is UTC
+                return datetime(2026, 5, 21, 12, 0, 30, 123456, tzinfo=UTC)
+
+        calls = []
+
+        async def fake_send_transaction(**kwargs):
+            calls.append(kwargs)
+            return {"tx_hash": "buy"}
+
+        monkeypatch.setattr(xian_server, "datetime", FixedDateTime)
+        monkeypatch.setattr(xian_server, "send_transaction", fake_send_transaction)
+
+        result = await buy_on_dex(
+            private_key="1" * 64,
+            buy_token=" con_token ",
+            sell_token=" currency ",
+            amount=1.25,
+            slippage=0.95,
+            deadline_min=2,
+        )
+
+        assert result == {"tx_hash": "buy"}
+        assert calls[0]["contract"] == "con_dex_helper"
+        assert calls[0]["function"] == "buy"
+        assert calls[0]["kwargs"] == {
+            "buy_token": "con_token",
+            "sell_token": "currency",
+            "amount": Decimal("1.25"),
+            "slippage": Decimal("0.95"),
+            "deadline": {"__time__": [2026, 5, 21, 12, 2, 30, 123456]},
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_dex_price_uses_sorted_pair_key_and_maps_reserves(
+        self,
+        monkeypatch,
+    ):
+        keys = []
+
+        async def fake_get_state(key):
+            keys.append(key)
+            if key == "con_pairs.toks_to_pair:con_base:con_token":
+                return {"state_value": "PAIR-1"}
+            if key == "con_pairs.pairs:PAIR-1:reserve0":
+                return {"state_value": Decimal("10")}
+            if key == "con_pairs.pairs:PAIR-1:reserve1":
+                return {"state_value": Decimal("2")}
+            raise AssertionError(f"unexpected state key: {key}")
+
+        monkeypatch.setattr(xian_server, "get_state", fake_get_state)
+
+        result = await get_dex_price("con_token", "con_base")
+
+        assert keys == [
+            "con_pairs.toks_to_pair:con_base:con_token",
+            "con_pairs.pairs:PAIR-1:reserve0",
+            "con_pairs.pairs:PAIR-1:reserve1",
+        ]
+        assert result == {
+            "token": "con_token",
+            "base": "con_base",
+            "price": 5.0,
+            "pair_id": "PAIR-1",
+            "reserve_token": 2.0,
+            "reserve_base": 10.0,
+        }
 
 
 class TestIndexedReadTools:
+    @pytest.mark.asyncio
+    async def test_indexed_reads_repair_tx_hash_from_raw_payload(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_indexed_tx(self, tx_hash):
+                assert tx_hash == "tx-1"
+                return {
+                    "tx_hash": None,
+                    "created": None,
+                    "raw": {
+                        "hash": "tx-1",
+                        "created_at": "2026-05-21T14:00:00+00:00",
+                    },
+                    "events": [
+                        {
+                            "tx_hash": None,
+                            "raw": {"hash": "tx-1"},
+                        }
+                    ],
+                }
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+        monkeypatch.delenv("XIAN_INCLUDE_RAW", raising=False)
+
+        result = await xian_server._call_indexed_read("get_indexed_tx", "tx-1")
+
+        assert result["tx_hash"] == "tx-1"
+        assert result["created"] == "2026-05-21T14:00:00+00:00"
+        assert result["events"][0]["tx_hash"] == "tx-1"
+        assert "raw" not in result
+        assert "raw" not in result["events"][0]
+
     @pytest.mark.asyncio
     async def test_bds_and_developer_reward_reads(self, monkeypatch):
         class FakeXianAsync:
