@@ -144,7 +144,7 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
   thin wrappers over the SDK's BDS surface.
 - **Read-mostly indexed surface.** BDS-backed reads (blocks, txs, events,
   state history, shielded sync) are read-only and most useful when pointed
-  at a service node with indexed APIs enabled.
+  at a node with BDS-backed indexed APIs enabled.
 
 ## Tool Surface
 
