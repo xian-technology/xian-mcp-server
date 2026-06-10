@@ -35,11 +35,11 @@ Always confirm with the user:
 
 ### Chi (Transaction Fees)
 Chi are Xian's equivalent of "gas" on other blockchains. Key differences:
-- **68% goes to the contract developer** whose contract is executed
-- **30% goes to validators** (split evenly among active validators)
-- **1% is permanently burned**, creating deflationary pressure
-- Chi are paid in XIAN (the native currency token)
-- Fixed and predictable costs unlike dynamic gas markets
+- the fee split is on-chain, governance-adjustable state in the `rewards`
+  contract; the default split is **68% contract developer, 30% validators,
+  1% foundation, 1% permanently burned**
+- chi are paid in XIAN (the native currency token)
+- fixed and predictable costs unlike dynamic gas markets
 
 When simulating transactions, the result includes chi usage estimates.
 
@@ -320,12 +320,12 @@ async with XianAsync(NODE_URL, wallet=wallet) as xian:
 ### Network Configuration
 Default values (can be configured via environment variables):
 - **NODE_URL**: `https://testnet.xian.org`
-- **CHAIN_ID**: `xian-testnet-12`
+- **CHAIN_ID**: `xian-testnet-13`
 - **GRAPHQL**: `https://testnet.xian.org/graphql`
 
 Testnet:
 - **NODE_URL**: `https://testnet.xian.org`
-- **CHAIN_ID**: `xian-testnet-12`
+- **CHAIN_ID**: `xian-testnet-13`
 
 ## Response Formatting
 
@@ -445,19 +445,12 @@ def transfer(amount: float, to: str):
 ## Resources
 
 ### Official Documentation
-- [XIAN Network Docs](https://docs.xian.org)
-- [Contracting Docs](http://contracting.xian.org)
-- [Smart Contracts Guide](https://github.com/xian-network/smart-contracts-docs)
+- [xian-docs-web](https://github.com/xian-technology/xian-docs-web) — public Xian documentation site source
 
 ### Developer Resources
-- [xian-tech-py SDK](https://github.com/xian-network/xian-py)
-- [xian-core](https://github.com/xian-network/xian-core)
-- [xian-contracting](https://github.com/xian-network/xian-contracting)
-
-### Network Resources
-- [Block Explorer](https://xian.org/explorer)
-- [Testnet Faucet](https://faucet.xian.org)
-- [DEX Interface](https://xian.org/dex)
+- [xian-py SDK](https://github.com/xian-technology/xian-py) — published as `xian-tech-py`
+- [xian-abci](https://github.com/xian-technology/xian-abci) — node runtime
+- [xian-contracting](https://github.com/xian-technology/xian-contracting) — contract runtime and compiler
 
 ## Token Standards
 
@@ -488,6 +481,6 @@ Optional features:
 - Genesis supply: 111,111,111 XIAN
 - 1% of chi permanently burned each transaction
 - Deflationary pressure over time
-- 100% of chi redistributed (68% dev, 30% validators, 1% burn)
+- 100% of chi redistributed (68% dev, 30% validators, 1% foundation, 1% burn)
 
 This unique model makes XIAN attractive for developers while maintaining network security through validator rewards.

@@ -39,7 +39,7 @@ flowchart LR
 Build the Docker image (recommended):
 
 ```bash
-git clone https://github.com/endogen/xian-mcp-server.git
+git clone https://github.com/xian-technology/xian-mcp-server.git
 cd xian-mcp-server
 docker compose build
 ```
@@ -166,11 +166,11 @@ Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 | Variable           | Purpose                                                | Default                                |
 | ------------------ | ------------------------------------------------------ | -------------------------------------- |
 | `XIAN_NODE_URL`    | Node RPC URL                                           | `https://testnet.xian.org`             |
-| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-testnet-12`                      |
+| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-testnet-13`                      |
 | `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `https://testnet.xian.org/graphql`     |
 | `XIAN_INCLUDE_RAW` | Include SDK `raw` payloads in MCP / HTTP responses     | `false`                                |
 
-For testnet, use `https://testnet.xian.org` and `xian-testnet-12`. Drop
+For testnet, use `https://testnet.xian.org` and `xian-testnet-13`. Drop
 these into a `.env` file (template in `.env.example`) when using
 `docker-compose`.
 

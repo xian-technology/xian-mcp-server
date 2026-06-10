@@ -42,7 +42,7 @@ logging.basicConfig(
 logger = logging.getLogger("xian-server")
 
 # Configuration
-CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-testnet-12")
+CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-testnet-13")
 NODE_URL = os.environ.get("XIAN_NODE_URL", "https://testnet.xian.org")
 GRAPHQL = os.environ.get("XIAN_GRAPHQL", "https://testnet.xian.org/graphql")
 UNSAFE_WALLET_TOOLS_ENV = "XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS"

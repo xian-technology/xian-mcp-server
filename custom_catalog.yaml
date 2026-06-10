@@ -45,7 +45,7 @@ registry:
         example: "https://testnet.xian.org"
       - name: XIAN_CHAIN_ID
         env: XIAN_CHAIN_ID
-        example: "xian-testnet-12"
+        example: "xian-testnet-13"
     metadata:
       category: integration
       tags:
