@@ -164,3 +164,4 @@ cython_debug/
 .idea/
 .zed
 .DS_Store
+graphify-out/
