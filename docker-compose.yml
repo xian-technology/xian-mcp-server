@@ -10,9 +10,9 @@ services:
         xian_runtime_types: ../xian-contracting/packages/xian-runtime-types
     image: xian-mcp-server:latest
     environment:
-      - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-testnet-13}
-      - XIAN_NODE_URL=${XIAN_NODE_URL:-https://testnet.xian.org}
-      - XIAN_GRAPHQL=${XIAN_GRAPHQL:-https://testnet.xian.org/graphql}
+      - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-local-1}
+      - XIAN_NODE_URL=${XIAN_NODE_URL:-http://127.0.0.1:26657}
+      - XIAN_GRAPHQL=${XIAN_GRAPHQL:-http://127.0.0.1:5000/graphql}
     stdin_open: true
     tty: true
 
@@ -30,8 +30,8 @@ services:
     ports:
       - "${HTTP_PORT:-8100}:8100"
     environment:
-      - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-testnet-13}
-      - XIAN_NODE_URL=${XIAN_NODE_URL:-https://testnet.xian.org}
-      - XIAN_GRAPHQL=${XIAN_GRAPHQL:-https://testnet.xian.org/graphql}
+      - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-local-1}
+      - XIAN_NODE_URL=${XIAN_NODE_URL:-http://127.0.0.1:26657}
+      - XIAN_GRAPHQL=${XIAN_GRAPHQL:-http://127.0.0.1:5000/graphql}
       - HTTP_PORT=8100
     restart: unless-stopped

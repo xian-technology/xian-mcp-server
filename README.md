@@ -165,14 +165,13 @@ Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 
 | Variable           | Purpose                                                | Default                                |
 | ------------------ | ------------------------------------------------------ | -------------------------------------- |
-| `XIAN_NODE_URL`    | Node RPC URL                                           | `https://testnet.xian.org`             |
-| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-testnet-13`                      |
-| `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `https://testnet.xian.org/graphql`     |
+| `XIAN_NODE_URL`    | Node RPC URL                                           | `http://127.0.0.1:26657`             |
+| `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-local-1`                      |
+| `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `http://127.0.0.1:5000/graphql`     |
 | `XIAN_INCLUDE_RAW` | Include SDK `raw` payloads in MCP / HTTP responses     | `false`                                |
 
-For testnet, use `https://testnet.xian.org` and `xian-testnet-13`. Drop
-these into a `.env` file (template in `.env.example`) when using
-`docker-compose`.
+The defaults target a local current-code stack. Drop overrides into a `.env`
+file (template in `.env.example`) when using `docker-compose`.
 
 ## Key Files
 

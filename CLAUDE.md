@@ -28,7 +28,7 @@ Always confirm with the user:
 - Always check balance before sending transactions
 - Simulate transactions when possible to estimate chi
 - Verify addresses are valid (64-character hex strings)
-- Use testnet for learning: `https://testnet.xian.org`
+- Use a local current-code node for learning: `http://127.0.0.1:26657`
 - Store recovery phrases/mnemonics securely offline
 
 ## XIAN-Specific Concepts
@@ -319,13 +319,13 @@ async with XianAsync(NODE_URL, wallet=wallet) as xian:
 
 ### Network Configuration
 Default values (can be configured via environment variables):
-- **NODE_URL**: `https://testnet.xian.org`
-- **CHAIN_ID**: `xian-testnet-13`
-- **GRAPHQL**: `https://testnet.xian.org/graphql`
+- **NODE_URL**: `http://127.0.0.1:26657`
+- **CHAIN_ID**: `xian-local-1`
+- **GRAPHQL**: `http://127.0.0.1:5000/graphql`
 
-Testnet:
-- **NODE_URL**: `https://testnet.xian.org`
-- **CHAIN_ID**: `xian-testnet-13`
+Local current-code node:
+- **NODE_URL**: `http://127.0.0.1:26657`
+- **CHAIN_ID**: `xian-local-1`
 
 ## Response Formatting
 
@@ -354,7 +354,7 @@ Return strings with ❌ emoji and clear error message:
 ## Testing and Debugging
 
 ### Test Before Real Operations
-1. Use testnet for experimentation
+1. Use a local current-code node for experimentation
 2. Simulate transactions before executing
 3. Start with small amounts
 4. Verify balance after operations

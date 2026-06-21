@@ -38,7 +38,7 @@ asyncio_mode = "auto"
 python_files = ["test_*.py"]
 testpaths = ["tests/unit"]
 markers = [
-  "integration: tests that depend on live network services or public testnet data",
+  "integration: tests that depend on live network services or local test network data",
 ]
 
 [tool.ruff]

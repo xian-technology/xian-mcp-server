@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("XIAN_NODE_URL", "https://testnet.xian.org")
-os.environ.setdefault("XIAN_CHAIN_ID", "xian-testnet-13")
-os.environ.setdefault("XIAN_GRAPHQL", "https://testnet.xian.org/graphql")
+os.environ.setdefault("XIAN_NODE_URL", "http://127.0.0.1:26657")
+os.environ.setdefault("XIAN_CHAIN_ID", "xian-local-1")
+os.environ.setdefault("XIAN_GRAPHQL", "http://127.0.0.1:5000/graphql")
 os.environ.setdefault("XIAN_INCLUDE_RAW", "false")
