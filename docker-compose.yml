@@ -28,10 +28,13 @@ services:
     image: xian-mcp-server:latest
     command: ["xian-mcp-http"]
     ports:
-      - "${HTTP_PORT:-8100}:8100"
+      - "127.0.0.1:${HTTP_PORT:-8100}:8100"
     environment:
       - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-local-1}
       - XIAN_NODE_URL=${XIAN_NODE_URL:-http://127.0.0.1:26657}
       - XIAN_GRAPHQL=${XIAN_GRAPHQL:-http://127.0.0.1:5000/graphql}
+      - XIAN_MCP_HTTP_TOKEN=${XIAN_MCP_HTTP_TOKEN:-}
+      - XIAN_MCP_HTTP_CORS_ORIGINS=${XIAN_MCP_HTTP_CORS_ORIGINS:-}
+      - HTTP_HOST=0.0.0.0
       - HTTP_PORT=8100
     restart: unless-stopped

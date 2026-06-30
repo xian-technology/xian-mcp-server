@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 from xian_py.models import (
     TokenBalancePage,
+    TokenContractPage,
     TransactionReceipt,
     TransactionSubmission,
 )
@@ -197,9 +198,30 @@ class TestInputValidation:
 
 class TestTokenGraphQL:
     @pytest.mark.asyncio
-    async def test_get_token_contract_by_symbol_uses_metadata_state(
-        self, monkeypatch
-    ):
+    async def test_get_token_contract_by_symbol_prefers_bds(self, monkeypatch):
+        async def fake_bds_get_tokens():
+            return [
+                {
+                    "token_contract": "currency",
+                    "token_symbol": "XIAN",
+                }
+            ]
+
+        async def fake_fetch_graphql(*_args, **_kwargs):
+            raise AssertionError("GraphQL should not be used when BDS is available")
+
+        monkeypatch.setattr(xian_server, "_bds_get_tokens", fake_bds_get_tokens)
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await get_token_contract_by_symbol("xian")
+
+        assert result == {"token_contracts": ["currency"], "count": 1}
+
+    @pytest.mark.asyncio
+    async def test_get_token_contract_by_symbol_uses_metadata_state(self, monkeypatch):
+        async def fake_bds_get_tokens():
+            raise RuntimeError("BDS unavailable")
+
         async def fake_fetch_graphql(query, **_kwargs):
             assert ".metadata:token_symbol" in query
             assert "allContracts" not in query
@@ -215,6 +237,7 @@ class TestTokenGraphQL:
                 }
             }
 
+        monkeypatch.setattr(xian_server, "_bds_get_tokens", fake_bds_get_tokens)
         monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
 
         result = await get_token_contract_by_symbol("xian")
@@ -222,9 +245,40 @@ class TestTokenGraphQL:
         assert result == {"token_contracts": ["currency"], "count": 1}
 
     @pytest.mark.asyncio
-    async def test_get_token_data_by_contract_uses_current_state_field(
-        self, monkeypatch
-    ):
+    async def test_get_token_data_by_contract_prefers_bds(self, monkeypatch):
+        async def fake_bds_get_token_data(contract):
+            assert contract == "currency"
+            return {
+                "tokenStates": {
+                    "nodes": [
+                        {
+                            "key": "currency.metadata:token_symbol",
+                            "value": "XIAN",
+                            "updatedAt": None,
+                        }
+                    ]
+                }
+            }
+
+        async def fake_fetch_graphql(*_args, **_kwargs):
+            raise AssertionError("GraphQL should not be used when BDS is available")
+
+        monkeypatch.setattr(
+            xian_server,
+            "_bds_get_token_data",
+            fake_bds_get_token_data,
+        )
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+
+        result = await get_token_data_by_contract("currency")
+
+        assert result["tokenStates"]["nodes"][0]["value"] == "XIAN"
+
+    @pytest.mark.asyncio
+    async def test_get_token_data_by_contract_uses_current_state_field(self, monkeypatch):
+        async def fake_bds_get_token_data(_contract):
+            raise RuntimeError("BDS unavailable")
+
         async def fake_fetch_graphql(query, variables=None, **_kwargs):
             assert "updatedAt" in query
             assert "updated\n" not in query
@@ -241,11 +295,149 @@ class TestTokenGraphQL:
                 }
             }
 
+        monkeypatch.setattr(
+            xian_server,
+            "_bds_get_token_data",
+            fake_bds_get_token_data,
+        )
         monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
 
         result = await get_token_data_by_contract("currency")
 
         assert result["tokenStates"]["nodes"][0]["updatedAt"].startswith("2026-")
+
+    @pytest.mark.asyncio
+    async def test_bds_get_tokens_pages_contracts(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_token_contracts(self, *, limit, offset):
+                assert limit == 1
+                if offset == 0:
+                    return TokenContractPage.from_dict(
+                        {
+                            "available": True,
+                            "items": [
+                                {
+                                    "contract": "currency",
+                                    "symbol": "xian",
+                                }
+                            ],
+                            "total": 2,
+                            "limit": limit,
+                            "offset": offset,
+                        }
+                    )
+                return TokenContractPage.from_dict(
+                    {
+                        "available": True,
+                        "items": [
+                            {
+                                "contract": "con_demo_token",
+                                "symbol": "demo",
+                            }
+                        ],
+                        "total": 2,
+                        "limit": limit,
+                        "offset": offset,
+                    }
+                )
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        result = await xian_server._bds_get_tokens(page_size=1)
+
+        assert result == [
+            {
+                "token_contract": "currency",
+                "token_symbol": "XIAN",
+            },
+            {
+                "token_contract": "con_demo_token",
+                "token_symbol": "DEMO",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_bds_get_tokens_supports_older_sdk_abci_fallback(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def _abci_query_value(self, path):
+                assert path == "/token_contracts/limit=1000/offset=0"
+                return {
+                    "available": True,
+                    "items": [
+                        {
+                            "contract": "con_demo_token",
+                            "symbol": '"demo"',
+                        }
+                    ],
+                    "total": 1,
+                    "limit": 1000,
+                    "offset": 0,
+                }
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        result = await xian_server._bds_get_tokens()
+
+        assert result == [
+            {
+                "token_contract": "con_demo_token",
+                "token_symbol": "DEMO",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_bds_get_token_data_reads_metadata_state(self, monkeypatch):
+        class FakeXianAsync:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get_state(self, contract, variable, *keys):
+                assert contract == "currency"
+                values = {
+                    ("metadata", "token_symbol"): "XIAN",
+                    ("metadata", "token_name"): "Xian",
+                }
+                return values.get((variable, *keys))
+
+        monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
+
+        result = await xian_server._bds_get_token_data("currency")
+
+        nodes = result["tokenStates"]["nodes"]
+        assert {
+            "key": "currency.metadata:token_symbol",
+            "value": "XIAN",
+            "updatedAt": None,
+        } in nodes
+        assert {
+            "key": "currency.metadata:token_name",
+            "value": "Xian",
+            "updatedAt": None,
+        } in nodes
 
     @pytest.mark.asyncio
     async def test_graphql_token_balances_decode_fixed_values(self, monkeypatch):
@@ -418,9 +610,7 @@ class TestCompatibilityRegressions:
 
         monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
 
-        assert await xian_server._graphql_get_contract_source("currency") == (
-            "contract source"
-        )
+        assert await xian_server._graphql_get_contract_source("currency") == ("contract source")
 
     @pytest.mark.asyncio
     async def test_graphql_state_changes_use_current_schema(self, monkeypatch):

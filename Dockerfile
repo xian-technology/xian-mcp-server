@@ -23,6 +23,7 @@ COPY README.md .
 COPY xian_server.py .
 COPY http_server.py .
 COPY serialization.py .
+COPY tool_policy.py .
 
 FROM base AS local
 

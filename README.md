@@ -104,9 +104,13 @@ LM Studio reloads MCP servers automatically when the file is saved.
 ### Run the HTTP Server
 
 ```bash
-docker compose up xian-mcp-http             # via Docker Compose
-docker run -p 8100:8100 xian-mcp-server xian-mcp-http
-uv run xian-mcp-http                        # bare-metal
+uv run xian-mcp-http                               # bare-metal
+export XIAN_MCP_HTTP_TOKEN="$(openssl rand -hex 32)"
+docker compose up xian-mcp-http
+docker run -p 127.0.0.1:8100:8100 \
+  -e HTTP_HOST=0.0.0.0 \
+  -e XIAN_MCP_HTTP_TOKEN="${XIAN_MCP_HTTP_TOKEN}" \
+  xian-mcp-server xian-mcp-http
 ```
 
 Endpoints:
@@ -119,10 +123,35 @@ Endpoints:
 
 ```bash
 curl http://localhost:8100/tools
-curl -X POST http://localhost:8100/tools/create_wallet
 curl -X POST http://localhost:8100/tools/get_balance \
      -H "Content-Type: application/json" \
      -d '{"address": "your_address_here"}'
+```
+
+HTTP binds to `127.0.0.1` by default in bare-metal mode. Docker examples bind
+the host port to `127.0.0.1` while the process listens on `0.0.0.0` inside the
+container.
+
+Unsafe wallet/signing tools are hidden from `GET /tools` and rejected by
+`POST /tools/{name}` unless `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS=1` is set.
+When unsafe tools are enabled, or when HTTP binds to a non-loopback address, set
+`XIAN_MCP_HTTP_TOKEN` and send it as a bearer token:
+
+```bash
+export XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS=1
+export XIAN_MCP_HTTP_TOKEN="$(openssl rand -hex 32)"
+
+curl http://localhost:8100/tools \
+     -H "Authorization: Bearer ${XIAN_MCP_HTTP_TOKEN}"
+curl -X POST http://localhost:8100/tools/create_wallet \
+     -H "Authorization: Bearer ${XIAN_MCP_HTTP_TOKEN}"
+```
+
+Browser CORS is disabled by default. To allow a local browser client, list exact
+origins with `XIAN_MCP_HTTP_CORS_ORIGINS`; wildcard CORS is rejected:
+
+```bash
+export XIAN_MCP_HTTP_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
 ```
 
 The HTTP wrapper (`http_server.py`) is designed to be reusable with any MCP
@@ -169,6 +198,11 @@ Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 | `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-local-1`                      |
 | `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `http://127.0.0.1:5000/graphql`     |
 | `XIAN_INCLUDE_RAW` | Include SDK `raw` payloads in MCP / HTTP responses     | `false`                                |
+| `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS` | Enable wallet creation/import, signing, encryption/decryption, sends, and DEX trade helpers | `false` |
+| `HTTP_HOST`        | HTTP bind address                                      | `127.0.0.1`                            |
+| `HTTP_PORT`        | HTTP bind port                                         | `8100`                                 |
+| `XIAN_MCP_HTTP_TOKEN` | Bearer token for HTTP tools; required for unsafe tools or non-loopback binds | unset |
+| `XIAN_MCP_HTTP_CORS_ORIGINS` | Comma-separated browser origins allowed to call HTTP mode | unset |
 
 The defaults target a local current-code stack. Drop overrides into a `.env`
 file (template in `.env.example`) when using `docker-compose`.
@@ -192,8 +226,22 @@ file (template in `.env.example`) when using `docker-compose`.
 ```bash
 uv sync --extra dev
 uv run pytest -q                       # deterministic unit tests
-uv run pytest -q tests/integration     # live-network integration tests (configure tests/shared.py)
 docker run --rm -i xian-mcp-server < test_requests.jsonl   # MCP handshake smoke test
+```
+
+Live-network integration tests are opt-in and submit small transactions against
+the configured dev node:
+
+```bash
+export XIAN_NODE_URL=http://127.0.0.1:27657
+export XIAN_CHAIN_ID=xian-localnet-1
+export XIAN_MCP_LIVE_PRIVATE_KEY=<funded-dev-private-key>
+export XIAN_MCP_LIVE_TOKEN_SYMBOL=XDT
+export XIAN_MCP_LIVE_TOKEN_CONTRACT=con_dex_demo_token
+export XIAN_MCP_LIVE_DEX_TOKEN=con_dex_demo_token
+export XIAN_MCP_LIVE_DEX_BASE=currency
+
+uv run pytest -q tests/integration/test_live_tool_surface.py
 ```
 
 CI runs unit tests and the MCP handshake smoke test on every push and PR.

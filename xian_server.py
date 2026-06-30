@@ -1470,7 +1470,14 @@ async def get_token_contract_by_symbol(token_symbol: str = "") -> dict[str, Any]
         return "❌ Error: Token symbol is required"
 
     try:
-        tokens = await get_tokens()
+        try:
+            tokens = await _bds_get_tokens()
+        except Exception as ex:
+            logger.info(
+                "BDS token contract listing unavailable, falling back to GraphQL: %s",
+                ex,
+            )
+            tokens = await get_tokens()
 
         symbols = defaultdict(list)
         for tkn in tokens:
@@ -1534,6 +1541,14 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
     """
 
     try:
+        try:
+            return await _bds_get_token_data(contract)
+        except Exception as ex:
+            logger.info(
+                "BDS token metadata unavailable, falling back to GraphQL: %s",
+                ex,
+            )
+
         data = await fetch_graphql(
             query=query,
             variables={
@@ -1712,6 +1727,119 @@ async def get_dex_price(
 
 
 # === SUPPORTING HELPERS ===
+def _metadata_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        if decoded is None:
+            return None
+        if isinstance(decoded, (str, int, float, bool)):
+            return str(decoded)
+        return json.dumps(decoded, separators=(",", ":"))
+    return str(value)
+
+
+async def _bds_get_token_contract_page(
+    xian: XianAsync,
+    *,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    get_token_contracts = getattr(xian, "get_token_contracts", None)
+    if callable(get_token_contracts):
+        page = await get_token_contracts(limit=limit, offset=offset)
+        return {
+            "items": [
+                {
+                    "contract": item.contract,
+                    "symbol": item.symbol,
+                }
+                for item in page.items
+            ],
+            "total": page.total,
+        }
+
+    # Older xian-tech-py versions expose the generic ABCI helper but not this
+    # specific BDS convenience method.
+    payload = await xian._abci_query_value(
+        f"/token_contracts/limit={limit}/offset={offset}"
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected token contracts payload")
+    return payload
+
+
+async def _bds_get_tokens(*, page_size: int = 1000) -> list[dict[str, str]]:
+    tokens: list[dict[str, str]] = []
+    offset = 0
+
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        while True:
+            page = await _bds_get_token_contract_page(
+                xian,
+                limit=page_size,
+                offset=offset,
+            )
+            items = [
+                item for item in page.get("items", []) if isinstance(item, dict)
+            ]
+            for item in items:
+                contract = _metadata_text(item.get("contract"))
+                symbol = _metadata_text(item.get("symbol"))
+                if contract and symbol:
+                    tokens.append(
+                        {
+                            "token_contract": contract.lower(),
+                            "token_symbol": symbol.upper(),
+                        }
+                    )
+
+            offset += len(items)
+            total = int(page.get("total", offset))
+            if not items or offset >= total:
+                break
+
+    return tokens
+
+
+async def _bds_get_token_data(contract: str) -> dict[str, Any]:
+    state_keys = [
+        f"{contract}.metadata:operator",
+        f"{contract}.metadata:token_logo_url",
+        f"{contract}.metadata:token_name",
+        f"{contract}.metadata:token_symbol",
+        f"{contract}.metadata:token_website",
+    ]
+
+    nodes: list[dict[str, Any]] = []
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        for state_key in state_keys:
+            state_contract, _, rest = state_key.partition(".")
+            variable, _, state_subkey = rest.partition(":")
+            value = (
+                await xian.get_state(state_contract, variable, state_subkey)
+                if state_subkey
+                else await xian.get_state(state_contract, variable)
+            )
+            if value is not None:
+                nodes.append(
+                    {
+                        "key": state_key,
+                        "value": normalize_for_transport(value),
+                        "updatedAt": None,
+                    }
+                )
+
+    if not nodes:
+        raise ValueError(f"No token metadata found for {contract}")
+
+    return {"tokenStates": {"nodes": nodes}}
+
+
 async def get_tokens() -> list[dict]:
     """Get all tokens with their contract name and symbol."""
     query = """

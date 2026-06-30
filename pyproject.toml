@@ -31,7 +31,7 @@ xian-mcp-server = "xian_server:run_cli"
 xian-mcp-http = "http_server:run_http_server"
 
 [tool.setuptools]
-py-modules = ["http_server", "serialization", "xian_server"]
+py-modules = ["http_server", "serialization", "tool_policy", "xian_server"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
