@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from xian_py.models import (
-    TokenBalancePage,
-    TokenContractPage,
-    TransactionReceipt,
-    TransactionSubmission,
-)
+from xian_py.models import TransactionReceipt, TransactionSubmission
 
 import xian_server
 from serialization import normalize_for_transport
@@ -63,6 +59,94 @@ from xian_server import (
     sign_message,
     verify_signature,
 )
+
+
+@dataclass(frozen=True)
+class _TokenBalance:
+    contract: str
+    balance: str | None
+    name: str | None
+    symbol: str | None
+    logo_url: str | None
+    last_tx_hash: str | None
+    last_block_height: int | None
+    updated_at: str | None
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "_TokenBalance":
+        return cls(
+            contract=str(raw.get("contract", "")),
+            balance=None if raw.get("balance") is None else str(raw["balance"]),
+            name=raw.get("name"),
+            symbol=raw.get("symbol"),
+            logo_url=raw.get("logo_url"),
+            last_tx_hash=raw.get("last_tx_hash"),
+            last_block_height=raw.get("last_block_height"),
+            updated_at=raw.get("updated_at"),
+        )
+
+
+@dataclass(frozen=True)
+class TokenBalancePage:
+    available: bool
+    address: str | None
+    total: int
+    limit: int
+    offset: int
+    items: list[_TokenBalance]
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "TokenBalancePage":
+        items = [
+            _TokenBalance.from_dict(item)
+            for item in raw.get("items", [])
+            if isinstance(item, dict)
+        ]
+        return cls(
+            available=bool(raw.get("available", False)),
+            address=raw.get("address"),
+            total=int(raw.get("total", len(items))),
+            limit=int(raw.get("limit", len(items))),
+            offset=int(raw.get("offset", 0)),
+            items=items,
+        )
+
+
+@dataclass(frozen=True)
+class _TokenContract:
+    contract: str
+    symbol: str
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "_TokenContract":
+        return cls(
+            contract=str(raw.get("contract", "")),
+            symbol=str(raw.get("symbol", "")),
+        )
+
+
+@dataclass(frozen=True)
+class TokenContractPage:
+    available: bool
+    total: int
+    limit: int
+    offset: int
+    items: list[_TokenContract]
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "TokenContractPage":
+        items = [
+            _TokenContract.from_dict(item)
+            for item in raw.get("items", [])
+            if isinstance(item, dict)
+        ]
+        return cls(
+            available=bool(raw.get("available", False)),
+            total=int(raw.get("total", len(items))),
+            limit=int(raw.get("limit", len(items))),
+            offset=int(raw.get("offset", 0)),
+            items=items,
+        )
 
 
 class TestWalletCreation:
