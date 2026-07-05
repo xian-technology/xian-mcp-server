@@ -180,6 +180,28 @@ def test_http_bridge_requires_token_for_non_loopback_bind(monkeypatch):
     assert HTTP_TOKEN_ENV in response.json()["detail"]
 
 
+@pytest.mark.parametrize("bind_host", ["::1", "[::1]"])
+def test_http_bridge_allows_ipv6_loopback_bind_without_token(monkeypatch, bind_host):
+    _clear_http_security_env(monkeypatch)
+
+    client = TestClient(create_app(_demo_tool_specs(), bind_host=bind_host))
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+    assert {tool["name"] for tool in response.json()} == {"safe_tool"}
+
+
+@pytest.mark.parametrize("bind_host", ["::", "2001:db8::1", "[2001:db8::1]"])
+def test_http_bridge_requires_token_for_non_loopback_ipv6_bind(monkeypatch, bind_host):
+    _clear_http_security_env(monkeypatch)
+
+    client = TestClient(create_app(_demo_tool_specs(), bind_host=bind_host))
+    response = client.get("/tools")
+
+    assert response.status_code == 503
+    assert HTTP_TOKEN_ENV in response.json()["detail"]
+
+
 def test_http_bridge_has_no_cors_by_default(monkeypatch):
     _clear_http_security_env(monkeypatch)
 

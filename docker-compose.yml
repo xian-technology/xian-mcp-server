@@ -28,7 +28,10 @@ services:
     image: xian-mcp-server:latest
     command: ["xian-mcp-http"]
     ports:
-      - "127.0.0.1:${HTTP_PORT:-8100}:8100"
+      - target: 8100
+        published: "${HTTP_PORT:-8100}"
+        host_ip: "${HTTP_PUBLISH_HOST:-127.0.0.1}"
+        protocol: tcp
     environment:
       - XIAN_CHAIN_ID=${XIAN_CHAIN_ID:-xian-local-1}
       - XIAN_NODE_URL=${XIAN_NODE_URL:-http://127.0.0.1:26657}

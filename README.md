@@ -106,6 +106,8 @@ LM Studio reloads MCP servers automatically when the file is saved.
 ```bash
 uv run xian-mcp-http                               # bare-metal
 export XIAN_MCP_HTTP_TOKEN="$(openssl rand -hex 32)"
+# Optional: publish Docker Compose HTTP on IPv6 loopback instead of IPv4.
+# export HTTP_PUBLISH_HOST="::1"
 docker compose up xian-mcp-http
 docker run -p 127.0.0.1:8100:8100 \
   -e HTTP_HOST=0.0.0.0 \
@@ -129,13 +131,17 @@ curl -X POST http://localhost:8100/tools/get_balance \
 ```
 
 HTTP binds to `127.0.0.1` by default in bare-metal mode. Docker examples bind
-the host port to `127.0.0.1` while the process listens on `0.0.0.0` inside the
-container.
+the host port to `127.0.0.1` by default while the process listens on `0.0.0.0`
+inside the container. With Compose, set `HTTP_PUBLISH_HOST=::1` to publish the
+host port on IPv6 loopback, then call `http://[::1]:8100/tools`.
 
 Unsafe wallet/signing tools are hidden from `GET /tools` and rejected by
 `POST /tools/{name}` unless `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS=1` is set.
 When unsafe tools are enabled, or when HTTP binds to a non-loopback address, set
-`XIAN_MCP_HTTP_TOKEN` and send it as a bearer token:
+`XIAN_MCP_HTTP_TOKEN` and send it as a bearer token. IPv4 loopback,
+`localhost`, and IPv6 loopback binds such as `::1` or `[::1]` do not require a
+token unless unsafe tools are enabled or a token is explicitly configured. IPv6
+wildcard `::` and other non-loopback IPv6 binds require a token.
 
 ```bash
 export XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS=1
@@ -201,6 +207,7 @@ Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 | `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS` | Enable wallet creation/import, signing, encryption/decryption, sends, and DEX trade helpers | `false` |
 | `HTTP_HOST`        | HTTP bind address                                      | `127.0.0.1`                            |
 | `HTTP_PORT`        | HTTP bind port                                         | `8100`                                 |
+| `HTTP_PUBLISH_HOST` | Docker Compose host interface for publishing HTTP mode | `127.0.0.1`                            |
 | `XIAN_MCP_HTTP_TOKEN` | Bearer token for HTTP tools; required for unsafe tools or non-loopback binds | unset |
 | `XIAN_MCP_HTTP_CORS_ORIGINS` | Comma-separated browser origins allowed to call HTTP mode | unset |
 
