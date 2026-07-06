@@ -28,18 +28,18 @@ jobs:
         working-directory: xian-mcp-server
     steps:
       - name: Checkout xian-mcp-server
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: xian-mcp-server
 
       - name: Checkout xian-py
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-py
           path: xian-py
 
       - name: Checkout xian-contracting
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
           path: xian-contracting
@@ -50,7 +50,7 @@ jobs:
           python-version: "3.14"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
 
       - name: Run unit tests
         run: uv run --extra dev pytest -q
@@ -71,18 +71,18 @@ jobs:
         working-directory: xian-mcp-server
     steps:
       - name: Checkout xian-mcp-server
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: xian-mcp-server
 
       - name: Checkout xian-py
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-py
           path: xian-py
 
       - name: Checkout xian-contracting
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: xian-technology/xian-contracting
           path: xian-contracting
@@ -93,7 +93,7 @@ jobs:
           python-version: "3.14"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
 
       - name: Run integration tests
         run: uv run --extra dev pytest -q tests/integration

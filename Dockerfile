@@ -4,7 +4,7 @@ FROM python:3.14-slim AS base
 # Set working directory
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.11 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.25 /uv /uvx /bin/
 
 # Set Python unbuffered mode
 ENV PYTHONUNBUFFERED=1
