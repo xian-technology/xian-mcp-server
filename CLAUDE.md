@@ -182,6 +182,42 @@ Retrieves token metadata.
 
 ### DEX (Decentralized Exchange) Operations
 
+Prefer the first-class `dex_*` workflow for agents:
+
+1. `dex_list_pairs` / `dex_get_pair` for canonical pair and LP-token discovery.
+2. `dex_quote_exact_in` or `dex_quote_exact_out` for signer-fee-aware routing,
+   hop amounts, price impact, and warnings.
+3. `dex_plan_swap`, `dex_plan_add_liquidity`, or
+   `dex_plan_remove_liquidity` for a fresh server-issued plan. Plans contain the
+   route, exact approval and action calls, slippage minimums, absolute deadline,
+   fee-on-transfer choice, chain binding, an opaque `plan_id`, canonical digest,
+   and issue/expiry timestamps.
+4. After explicit user approval, pass only the returned `plan_id` and private
+   key to its matching `dex_submit_*` tool. Submitters are hidden unless
+   `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS=1`, simulate by default, and verify that
+   the stored plan account matches the private key. A submission attempt
+   atomically consumes the plan before any calls are sent, so retry by creating
+   and confirming a fresh plan. Plans are process-local, short-lived, bounded,
+   and invalid after a server restart.
+5. For low-latency monitoring, start `dex_wait_live_event` before the expected
+   transaction. It reads finalized CometBFT WebSocket events without BDS, but
+   it is non-durable and has no replay cursor.
+6. Verify the confirmed transaction and use `dex_list_events(after_id=...)`
+   for durable recovery before triggering downstream side effects.
+
+The current router exposes exact-input writes only. `dex_quote_exact_out` is a
+real exact-output read, but `dex_plan_swap(mode="exact_out")` plans a capped
+exact-input transaction: the slippage bound caps `amountIn`, while the requested
+output becomes `amountOutMin`. Exact-output fee-on-transfer plans are rejected
+because received amounts cannot be guaranteed. The router spends the full
+planned input cap; unused slippage headroom becomes additional output rather
+than a refund.
+
+Never submit a value-moving `dex_submit_*` tool without showing the user the
+plan's `calls`, amounts, recipient, deadline, price impact, and warnings.
+
+The following helpers remain for compatibility with simple single-pair flows:
+
 #### get_dex_price(token_contract, base_contract="currency")
 Gets current price for a token pair.
 - `base_contract`: Usually "currency" (XIAN)
@@ -190,7 +226,8 @@ Gets current price for a token pair.
 
 #### buy_on_dex(private_key, buy_token, sell_token, amount, slippage=1.0, deadline_min=1.0)
 Buys tokens on the DEX.
-- `amount`: Amount of `buy_token` to receive
+- `amount`: Desired output amount of `buy_token` to receive, not the amount of
+  `sell_token` to spend
 - `slippage`: Maximum acceptable slippage (default 1%)
 - `deadline_min`: Transaction deadline in minutes
 - Uses contract `con_dex_helper`
@@ -256,12 +293,14 @@ Decrypts received message.
 ```
 1. get_balance(address, sell_token)
    - Verify sufficient balance
-2. get_dex_price(buy_token, sell_token)
-   - Show current price to user
-3. Calculate approximate cost/proceeds
-4. Confirm trade with user
-5. buy_on_dex() or sell_on_dex()
-6. get_transaction(tx_hash) to verify
+2. dex_quote_exact_in(sell_token, buy_token, amount, account=address)
+3. dex_plan_swap(..., account=address, recipient=address)
+   - Show exact calls, approvals, minimum output, deadline, price impact, and warnings
+4. Confirm the complete plan with the user
+5. dex_submit_swap(private_key, plan_id=plan.plan_id)
+6. get_transaction(tx_hash) to verify finality
+7. dex_wait_live_event(...) for a pre-started low-latency wait, or
+   dex_list_events(after_id=...) for durable verification/recovery
 ```
 
 ### Workflow 4: Explore Contract

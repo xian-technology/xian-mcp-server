@@ -16,7 +16,7 @@ dependencies = [
   "httpx>=0.28.1,<0.29",
   "mcp[cli]>=1.27.0,<2",
   "uvicorn>=0.46.0,<0.47",
-  "xian-tech-py[eth,hd]>=0.4.15,<0.5",
+  "xian-tech-py[eth,hd]>=0.5.0,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +31,14 @@ xian-mcp-server = "xian_server:run_cli"
 xian-mcp-http = "http_server:run_http_server"
 
 [tool.setuptools]
-py-modules = ["http_server", "serialization", "tool_policy", "xian_server"]
+py-modules = [
+  "dex_plan_registry",
+  "dex_tools",
+  "http_server",
+  "serialization",
+  "tool_policy",
+  "xian_server",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
