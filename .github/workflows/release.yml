@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Validate release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          expected = os.environ["RELEASE_TAG"].removeprefix("v")
+          actual = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          if actual != expected:
+              raise SystemExit(f"release tag {expected} does not match project version {actual}")
+          PY
+
+      - name: Validate and build
+        run: |
+          uv sync --frozen --extra dev
+          uv run --extra dev ruff check .
+          uv run --extra dev pytest -q
+          uv run xian-mcp-server < test_requests.jsonl
+          uv build
+
+      - name: Check built package
+        run: |
+          wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          python -m zipfile -l "${wheel}" >/dev/null
+          cd dist
+          sha256sum -- ./* > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "xian-mcp-server ${GITHUB_REF_NAME#v}" \
+            --generate-notes
