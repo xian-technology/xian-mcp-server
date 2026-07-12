@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
 # Copy project metadata and source
 COPY pyproject.toml .
 COPY README.md .
+COPY dex_tools.py .
+COPY dex_plan_registry.py .
 COPY xian_server.py .
 COPY http_server.py .
 COPY serialization.py .
@@ -32,7 +34,7 @@ COPY --from=xian_runtime_types . /tmp/build/xian-runtime-types
 COPY --from=xian_accounts . /tmp/build/xian-accounts
 COPY --from=xian_py . /tmp/build/xian-py
 
-RUN uv pip install --system --no-cache \
+RUN uv pip install --system --no-cache --no-sources \
     /tmp/build/xian-runtime-types \
     /tmp/build/xian-accounts \
     "/tmp/build/xian-py[eth,hd]" \

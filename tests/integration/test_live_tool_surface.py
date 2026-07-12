@@ -8,6 +8,20 @@ from typing import Any
 import pytest
 from xian_py import Wallet
 
+from dex_tools import (
+    dex_get_pair,
+    dex_list_events,
+    dex_list_pairs,
+    dex_plan_add_liquidity,
+    dex_plan_remove_liquidity,
+    dex_plan_swap,
+    dex_quote_exact_in,
+    dex_quote_exact_out,
+    dex_submit_add_liquidity,
+    dex_submit_remove_liquidity,
+    dex_submit_swap,
+    dex_wait_live_event,
+)
 from tests.shared import TEST_MNEMONIC
 from xian_server import (
     TOOL_SPECS,
@@ -130,6 +144,18 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
         "buy_on_dex",
         "sell_on_dex",
         "get_dex_price",
+        "dex_list_pairs",
+        "dex_get_pair",
+        "dex_quote_exact_in",
+        "dex_quote_exact_out",
+        "dex_plan_swap",
+        "dex_submit_swap",
+        "dex_plan_add_liquidity",
+        "dex_submit_add_liquidity",
+        "dex_plan_remove_liquidity",
+        "dex_submit_remove_liquidity",
+        "dex_wait_live_event",
+        "dex_list_events",
         "sign_message",
         "verify_signature",
         "encrypt_message",
@@ -259,6 +285,53 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
 
     dex_price = _assert_success(await get_dex_price(dex_token, dex_base), tool="get_dex_price")
     if "error" not in dex_price:
+        pairs = _assert_success(await dex_list_pairs(limit=100), tool="dex_list_pairs")
+        assert any(pair["pair_id"] == dex_price["pair_id"] for pair in pairs["items"])
+        pair = _assert_success(
+            await dex_get_pair(token_a=dex_base, token_b=dex_token),
+            tool="dex_get_pair",
+        )
+        assert pair["pair"]["pair_id"] == dex_price["pair_id"]
+        exact_in = _assert_success(
+            await dex_quote_exact_in(
+                dex_base,
+                dex_token,
+                0.001,
+                account=address,
+            ),
+            tool="dex_quote_exact_in",
+        )
+        assert exact_in["amount_out"] > 0
+        exact_out = _assert_success(
+            await dex_quote_exact_out(
+                dex_base,
+                dex_token,
+                exact_in["amount_out"] / 2,
+                account=address,
+            ),
+            tool="dex_quote_exact_out",
+        )
+        assert exact_out["amount_in"] > 0
+        swap_plan = _assert_success(
+            await dex_plan_swap(
+                dex_base,
+                dex_token,
+                0.001,
+                address,
+                address,
+            ),
+            tool="dex_plan_swap",
+        )
+        swap_result = _assert_success(
+            await dex_submit_swap(private_key, swap_plan["plan_id"]),
+            tool="dex_submit_swap",
+        )
+        await _wait_for_indexed_tx(_tx_hash(swap_result["final_transaction"]))
+        replay = await dex_submit_swap(private_key, swap_plan["plan_id"])
+        assert replay["ok"] is False
+        tampered = await dex_submit_swap(private_key, f"{swap_plan['plan_id']}x")
+        assert tampered["ok"] is False
+
         approve_result = _assert_success(
             await send_transaction(
                 private_key=private_key,
@@ -269,6 +342,17 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
             tool="send_transaction",
         )
         await _wait_for_indexed_tx(_tx_hash(approve_result))
+        live_swap_task = asyncio.create_task(
+            dex_wait_live_event(
+                contract="con_pairs",
+                event="Swap",
+                timeout_seconds=30,
+                signer=address,
+            )
+        )
+        # Give the CometBFT subscription time to acknowledge before broadcasting
+        # the swap that this bounded live wait is intended to observe.
+        await asyncio.sleep(0.25)
         buy_result = _assert_success(
             await buy_on_dex(
                 private_key=private_key,
@@ -279,6 +363,10 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
             ),
             tool="buy_on_dex",
         )
+        live_swap = _assert_success(await live_swap_task, tool="dex_wait_live_event")
+        assert live_swap["bds_required"] is False
+        assert live_swap["timed_out"] is False
+        assert live_swap["items"][0]["tx_hash"].upper() == _tx_hash(buy_result).upper()
         await _wait_for_indexed_tx(_tx_hash(buy_result))
         sell_result = _assert_success(
             await sell_on_dex(
@@ -291,6 +379,50 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
             tool="sell_on_dex",
         )
         await _wait_for_indexed_tx(_tx_hash(sell_result))
+
+        dex_events = _assert_success(
+            await dex_list_events(contract="con_pairs", event="Swap", limit=20),
+            tool="dex_list_events",
+        )
+        assert isinstance(dex_events["items"], list)
+
+        if os.environ.get("XIAN_MCP_LIVE_DEX_LIQUIDITY", "").strip() == "1":
+            add_plan = _assert_success(
+                await dex_plan_add_liquidity(
+                    dex_base,
+                    dex_token,
+                    0.001,
+                    0.001,
+                    address,
+                    address,
+                ),
+                tool="dex_plan_add_liquidity",
+            )
+            add_result = _assert_success(
+                await dex_submit_add_liquidity(private_key, add_plan["plan_id"]),
+                tool="dex_submit_add_liquidity",
+            )
+            await _wait_for_indexed_tx(_tx_hash(add_result["final_transaction"]))
+            lp_balance = _assert_success(
+                await get_balance(address, add_plan["lp_token"]),
+                tool="get_balance(lp_token)",
+            )["balance"]
+            if Decimal(str(lp_balance)) > 0:
+                remove_plan = _assert_success(
+                    await dex_plan_remove_liquidity(
+                        dex_base,
+                        dex_token,
+                        Decimal(str(lp_balance)) / 10,
+                        address,
+                        address,
+                    ),
+                    tool="dex_plan_remove_liquidity",
+                )
+                remove_result = _assert_success(
+                    await dex_submit_remove_liquidity(private_key, remove_plan["plan_id"]),
+                    tool="dex_submit_remove_liquidity",
+                )
+                await _wait_for_indexed_tx(_tx_hash(remove_result["final_transaction"]))
 
     output_tags = _assert_success(
         await list_shielded_output_tags(shielded_tag, limit=5),

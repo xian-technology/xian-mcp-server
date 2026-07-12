@@ -31,6 +31,7 @@ from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
 from xian_py.wallet import HDWallet, verify_msg
 
+from dex_tools import DEX_TOOL_SPECS
 from serialization import normalize_for_transport
 
 # Configure logging to stderr
@@ -1593,7 +1594,7 @@ async def buy_on_dex(
     slippage: float = 1.0,
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
-    """Buy tokens on the DEX."""
+    """Buy a desired output amount of tokens on the DEX."""
     if not private_key.strip():
         return "❌ Error: Private key is required"
     if not buy_token.strip():
@@ -2494,7 +2495,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "buy_on_dex",
-        "description": "Buy tokens on the XIAN DEX",
+        "description": "Buy a desired output amount of tokens on the XIAN DEX",
         "schema": {
             "type": "object",
             "properties": {
@@ -2510,7 +2511,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
                 },
                 "amount": {
                     "type": "number",
-                    "description": "Amount of sell_token to spend",
+                    "description": "Desired amount of buy_token to receive (output amount)",
                 },
                 "slippage": {
                     "type": "number",
@@ -2670,7 +2671,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "unsafe": True,
         "handler": decrypt_message,
     },
-]
+] + DEX_TOOL_SPECS
 
 TOOL_REGISTRY: Dict[str, ToolHandler] = {
     spec["name"]: spec["handler"] for spec in TOOL_SPECS

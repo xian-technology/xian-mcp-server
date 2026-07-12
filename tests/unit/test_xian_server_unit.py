@@ -1484,3 +1484,18 @@ class TestUnsafeToolGating:
         assert "create_wallet" in tool_names
         assert "send_transaction" in tool_names
         assert "sign_message" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_mcp_catalog_publishes_buy_amount_as_desired_output(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
+
+        tools = await xian_server.list_tools()
+        buy_tool = next(tool for tool in tools if tool.name == "buy_on_dex")
+
+        assert buy_tool.inputSchema["properties"]["amount"] == {
+            "type": "number",
+            "description": "Desired amount of buy_token to receive (output amount)",
+        }

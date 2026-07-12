@@ -126,6 +126,25 @@ def test_default_xian_http_catalog_hides_and_rejects_unsafe_tools(monkeypatch):
     assert "disabled by default" in call_response.json()["detail"]
 
 
+def test_default_xian_http_catalog_publishes_buy_amount_as_desired_output(monkeypatch):
+    _clear_http_security_env(monkeypatch)
+    monkeypatch.setenv(UNSAFE_WALLET_TOOLS_ENV, "1")
+    monkeypatch.setenv(HTTP_TOKEN_ENV, "dev-secret")
+
+    client = TestClient(create_app())
+    response = client.get(
+        "/tools",
+        headers={"Authorization": "Bearer dev-secret"},
+    )
+
+    assert response.status_code == 200
+    buy_tool = next(tool for tool in response.json() if tool["name"] == "buy_on_dex")
+    assert buy_tool["parameters"]["properties"]["amount"] == {
+        "type": "number",
+        "description": "Desired amount of buy_token to receive (output amount)",
+    }
+
+
 def test_http_bridge_exposes_unsafe_tools_when_gate_and_token_are_enabled(monkeypatch):
     _clear_http_security_env(monkeypatch)
     monkeypatch.setenv(UNSAFE_WALLET_TOOLS_ENV, "1")
