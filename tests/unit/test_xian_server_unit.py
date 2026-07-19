@@ -1125,7 +1125,7 @@ class TestCompatibilityRegressions:
 
 class TestIndexedReadTools:
     @pytest.mark.asyncio
-    async def test_indexed_reads_repair_tx_hash_from_raw_payload(self, monkeypatch):
+    async def test_indexed_reads_keep_canonical_tx_hash_and_strip_raw(self, monkeypatch):
         class FakeXianAsync:
             def __init__(self, *_args, **_kwargs):
                 pass
@@ -1139,16 +1139,15 @@ class TestIndexedReadTools:
             async def get_indexed_tx(self, tx_hash):
                 assert tx_hash == "tx-1"
                 return {
-                    "tx_hash": None,
+                    "tx_hash": "tx-1",
                     "created": None,
                     "raw": {
-                        "hash": "tx-1",
                         "created_at": "2026-05-21T14:00:00+00:00",
                     },
                     "events": [
                         {
-                            "tx_hash": None,
-                            "raw": {"hash": "tx-1"},
+                            "tx_hash": "tx-1",
+                            "raw": {},
                         }
                     ],
                 }
@@ -1227,23 +1226,23 @@ class TestIndexedReadTools:
 
             async def get_indexed_tx(self, tx_hash):
                 assert tx_hash == "tx-1"
-                return {"hash": tx_hash, "sender": "alice"}
+                return {"tx_hash": tx_hash, "sender": "alice"}
 
             async def list_txs_for_block(self, block_ref):
                 assert block_ref == 100
-                return [{"hash": "tx-1"}]
+                return [{"tx_hash": "tx-1"}]
 
             async def list_txs_by_sender(self, sender, *, limit, offset):
                 assert sender == "alice"
                 assert limit == 5
                 assert offset == 2
-                return [{"hash": "tx-2", "sender": sender}]
+                return [{"tx_hash": "tx-2", "sender": sender}]
 
             async def list_txs_by_contract(self, contract, *, limit, offset):
                 assert contract == "currency"
                 assert limit == 3
                 assert offset == 0
-                return [{"hash": "tx-3", "contract": contract}]
+                return [{"tx_hash": "tx-3", "contract": contract}]
 
         monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
 
@@ -1259,7 +1258,8 @@ class TestIndexedReadTools:
         assert block["hash"] == "block-100"
         assert block_by_hash["height"] == 100
         assert indexed_tx["sender"] == "alice"
-        assert txs_for_block[0]["hash"] == "tx-1"
+        assert indexed_tx["tx_hash"] == "tx-1"
+        assert txs_for_block[0]["tx_hash"] == "tx-1"
         assert txs_by_sender[0]["sender"] == "alice"
         assert txs_by_contract[0]["contract"] == "currency"
 

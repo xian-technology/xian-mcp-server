@@ -133,8 +133,6 @@ def _repair_indexed_payload(value: Any, *, include_raw: bool) -> Any:
 
     raw = value.get("raw")
     if isinstance(raw, dict):
-        if value.get("tx_hash") is None and isinstance(raw.get("hash"), str):
-            value["tx_hash"] = raw["hash"]
         if value.get("created") is None and isinstance(raw.get("created_at"), str):
             value["created"] = raw["created_at"]
         if not include_raw:
