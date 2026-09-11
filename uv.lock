@@ -1314,11 +1314,11 @@ hd = [
 
 [[package]]
 name = "xian-tech-runtime-types"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1b/84/a0a424edaf8b9130e4b222be58ee7bf87fdbb353d5d7ce5eaba94462ee54/xian_tech_runtime_types-0.1.4.tar.gz", hash = "sha256:d139253516e6f37d070c7f8eae7deb6fbc4c3ad90dfbcaeb128b7c83d0142a9b", size = 7817 }
+sdist = { url = "https://files.pythonhosted.org/packages/26/1e/892c284a958f0e229755f06e8302f32a8ef4bcdd5f4c84a903e5ee20ceed/xian_tech_runtime_types-0.1.5.tar.gz", hash = "sha256:f26b11b3d58a40ca2e7536d0a76e92f982040349c6cd1f433a1956a31fb73923", size = 7965 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/84/20ada02a5dcfd7dcb9eb4bb6af4ed0caead1893856567a542134650e42ab/xian_tech_runtime_types-0.1.4-py3-none-any.whl", hash = "sha256:02019fc20f9810d21d94a06f888115871501dec6373b903b90207bac49920542", size = 8764 },
+    { url = "https://files.pythonhosted.org/packages/5e/80/8b105198d7f65053897b015882899856347b094c9884522bb63ee9e75e9e/xian_tech_runtime_types-0.1.5-py3-none-any.whl", hash = "sha256:b62775b6275661c61708f04b02b162691158a364a98b374e161d0281ac77adf4", size = 8801 },
 ]
 
 [[package]]
