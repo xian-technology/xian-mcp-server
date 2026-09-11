@@ -1290,7 +1290,7 @@ wheels = [
 
 [[package]]
 name = "xian-tech-py"
-version = "0.5.1"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1298,9 +1298,9 @@ dependencies = [
     { name = "xian-tech-accounts" },
     { name = "xian-tech-runtime-types" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/fc/32585a22bb9761553b3915e3a3cc62b2050f98136c9d5aa1dea16a43fc9a/xian_tech_py-0.5.1.tar.gz", hash = "sha256:69ee5cf20b06b4b6fa69bbcaddaa362192840e56188eb1fef3636a838593b252", size = 54777 }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/d6/63002f791acb424881d2390226406640eeec0786ba6b1721a0076d2eacd4/xian_tech_py-0.5.2.tar.gz", hash = "sha256:00db4527fcb4db6e938d16abf1c279fc0332c83746a9578e80e5ef0868569abc", size = 55658 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/c6/8b1ea5b76407791ee02fabc4a014d3cfd9367d21072b66036069a5aff4da/xian_tech_py-0.5.1-py3-none-any.whl", hash = "sha256:89a93ce3fa04d5532cf0151765c76c23838dd0a13251d4c32aa951453742d488", size = 54952 },
+    { url = "https://files.pythonhosted.org/packages/cb/cd/7a7575aee29d5e523d1764059d473fbeac5c161dff7a399e65d8ce059170/xian_tech_py-0.5.2-py3-none-any.whl", hash = "sha256:9f000b68e53c2ec7bcf1f98847349f142a5fa65a19e3a91fd12286b1dc66f1c3", size = 56086 },
 ]
 
 [package.optional-dependencies]
