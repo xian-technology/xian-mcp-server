@@ -122,9 +122,7 @@ def _include_raw_payloads() -> bool:
 
 def _repair_indexed_payload(value: Any, *, include_raw: bool) -> Any:
     if isinstance(value, list):
-        return [
-            _repair_indexed_payload(item, include_raw=include_raw) for item in value
-        ]
+        return [_repair_indexed_payload(item, include_raw=include_raw) for item in value]
     if not isinstance(value, dict):
         return value
 
@@ -181,7 +179,7 @@ def _rpc_block_to_indexed(block_payload: dict[str, Any]) -> dict[str, Any] | Non
     raw_height = header.get("height")
     try:
         height = int(raw_height) if raw_height is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         height = None
 
     return {
@@ -194,9 +192,7 @@ def _rpc_block_to_indexed(block_payload: dict[str, Any]) -> dict[str, Any] | Non
 
 
 async def _get_rpc_block(height: int) -> dict[str, Any] | None:
-    return _rpc_block_to_indexed(
-        await _fetch_rpc_json("block", params={"height": str(height)})
-    )
+    return _rpc_block_to_indexed(await _fetch_rpc_json("block", params={"height": str(height)}))
 
 
 async def _get_rpc_block_by_hash(block_hash: str) -> dict[str, Any] | None:
@@ -271,9 +267,7 @@ def _decode_graphql_state_value(value: Any) -> Any:
     if isinstance(value, dict):
         if set(value) == {"__fixed__"}:
             return str(value["__fixed__"])
-        return {
-            key: _decode_graphql_state_value(item) for key, item in value.items()
-        }
+        return {key: _decode_graphql_state_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_decode_graphql_state_value(item) for item in value]
     return value
@@ -348,11 +342,7 @@ async def _graphql_list_txs_by_condition(
         variables={"condition": condition, "limit": limit, "offset": offset},
     )
     nodes = data.get("allTransactions", {}).get("nodes", [])
-    return [
-        _graphql_transaction_node_to_dict(node)
-        for node in nodes
-        if isinstance(node, dict)
-    ]
+    return [_graphql_transaction_node_to_dict(node) for node in nodes if isinstance(node, dict)]
 
 
 async def _graphql_get_state_changes(
@@ -384,11 +374,7 @@ async def _graphql_get_state_changes(
         variables={"condition": condition, "limit": limit, "offset": offset},
     )
     nodes = data.get("allStateChanges", {}).get("nodes", [])
-    return [
-        _graphql_state_change_node_to_dict(node)
-        for node in nodes
-        if isinstance(node, dict)
-    ]
+    return [_graphql_state_change_node_to_dict(node) for node in nodes if isinstance(node, dict)]
 
 
 async def _graphql_get_state_for_block(
@@ -543,11 +529,7 @@ async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
     }
     """
     data = await fetch_graphql(query=query, variables={"key": recipient_key})
-    nodes = [
-        node
-        for node in data.get("allRewards", {}).get("nodes", [])
-        if isinstance(node, dict)
-    ]
+    nodes = [node for node in data.get("allRewards", {}).get("nodes", []) if isinstance(node, dict)]
     total = Decimal("0")
     tx_hashes: set[str] = set()
     contracts: set[str] = set()
@@ -675,9 +657,7 @@ async def create_hd_wallet_from_mnemonic(mnemonic: str = "") -> dict[str, str] |
         return f"❌ Error creating HD wallet: {str(ex)}"
 
 
-async def get_balance(
-    address: str = "", token_contract: str = "currency"
-) -> dict[str, Any] | str:
+async def get_balance(address: str = "", token_contract: str = "currency") -> dict[str, Any] | str:
     """Get balance for an address, optionally for a specific token contract."""
     if not address.strip():
         return "❌ Error: Address is required"
@@ -686,9 +666,7 @@ async def get_balance(
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-            balance = await xian.get_balance(
-                address.strip(), contract=token_contract.strip()
-            )
+            balance = await xian.get_balance(address.strip(), contract=token_contract.strip())
             balance = 0 if balance is None else balance
 
             return normalize_for_transport(
@@ -716,7 +694,7 @@ async def get_token_balances(
     try:
         limit = int(limit)
         offset = int(offset)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return "❌ Error: Limit and offset must be integers"
 
     if limit <= 0:
@@ -763,7 +741,7 @@ async def get_bds_status() -> dict[str, Any] | str:
         latest_height = sync_info.get("latest_block_height")
         try:
             latest_height = int(latest_height) if latest_height is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             latest_height = None
         return {
             "available": False,
@@ -1153,10 +1131,7 @@ async def list_shielded_output_tags(
     except Exception as ex:
         status = await get_bds_status()
         if isinstance(status, dict) and status.get("available") is False:
-            return (
-                "❌ Error: BDS shielded output tag index is unavailable on "
-                "the configured node"
-            )
+            return "❌ Error: BDS shielded output tag index is unavailable on the configured node"
         logger.error("Error listing shielded output tags: %s", ex)
         return f"❌ Error listing shielded output tags: {str(ex)}"
 
@@ -1194,8 +1169,7 @@ async def list_shielded_wallet_history(
         status = await get_bds_status()
         if isinstance(status, dict) and status.get("available") is False:
             return (
-                "❌ Error: BDS shielded wallet history index is unavailable "
-                "on the configured node"
+                "❌ Error: BDS shielded wallet history index is unavailable on the configured node"
             )
         logger.error("Error listing shielded wallet history: %s", ex)
         return f"❌ Error listing shielded wallet history: {str(ex)}"
@@ -1352,9 +1326,7 @@ async def simulate_transaction(
         return f"❌ Error simulating transaction: {str(ex)}"
 
 
-async def sign_message(
-    private_key: str = "", message: str = ""
-) -> dict[str, str] | str:
+async def sign_message(private_key: str = "", message: str = "") -> dict[str, str] | str:
     """Sign a message with a wallet's private key."""
     if not private_key.strip():
         return "❌ Error: Private key is required"
@@ -1365,7 +1337,7 @@ async def sign_message(
 
     try:
         wallet = Wallet(private_key.strip())
-        signature = wallet.sign_msg(message.strip())
+        signature = wallet.sign_msg(message)
 
         return {
             "signature": signature,
@@ -1375,9 +1347,7 @@ async def sign_message(
         return f"❌ Error signing message: {str(ex)}"
 
 
-async def verify_signature(
-    address: str = "", message: str = "", signature: str = ""
-) -> bool | str:
+async def verify_signature(address: str = "", message: str = "", signature: str = "") -> bool | str:
     """Verify a signature for a message."""
     if not address.strip():
         return "❌ Error: Address is required"
@@ -1764,9 +1734,7 @@ async def _bds_get_token_contract_page(
 
     # Older xian-tech-py versions expose the generic ABCI helper but not this
     # specific BDS convenience method.
-    payload = await xian._abci_query_value(
-        f"/token_contracts/limit={limit}/offset={offset}"
-    )
+    payload = await xian._abci_query_value(f"/token_contracts/limit={limit}/offset={offset}")
     if not isinstance(payload, dict):
         raise ValueError("Unexpected token contracts payload")
     return payload
@@ -1783,9 +1751,7 @@ async def _bds_get_tokens(*, page_size: int = 1000) -> list[dict[str, str]]:
                 limit=page_size,
                 offset=offset,
             )
-            items = [
-                item for item in page.get("items", []) if isinstance(item, dict)
-            ]
+            items = [item for item in page.get("items", []) if isinstance(item, dict)]
             for item in items:
                 contract = _metadata_text(item.get("contract"))
                 symbol = _metadata_text(item.get("symbol"))
@@ -1908,9 +1874,7 @@ async def fetch_graphql(
                 result = await response.json()
 
                 if "errors" in result:
-                    error_msg = ", ".join(
-                        err.get("message", str(err)) for err in result["errors"]
-                    )
+                    error_msg = ", ".join(err.get("message", str(err)) for err in result["errors"])
                     raise Exception(f"GraphQL errors: {error_msg}")
 
                 return result.get("data", {})
@@ -2402,9 +2366,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
         "description": "Get details of a transaction by its hash",
         "schema": {
             "type": "object",
-            "properties": {
-                "tx_hash": {"type": "string", "description": "Transaction hash"}
-            },
+            "properties": {"tx_hash": {"type": "string", "description": "Transaction hash"}},
             "required": ["tx_hash"],
         },
         "handler": get_transaction,
@@ -2671,12 +2633,8 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
 ] + DEX_TOOL_SPECS
 
-TOOL_REGISTRY: Dict[str, ToolHandler] = {
-    spec["name"]: spec["handler"] for spec in TOOL_SPECS
-}
-TOOL_SPEC_BY_NAME: Dict[str, dict[str, Any]] = {
-    spec["name"]: spec for spec in TOOL_SPECS
-}
+TOOL_REGISTRY: Dict[str, ToolHandler] = {spec["name"]: spec["handler"] for spec in TOOL_SPECS}
+TOOL_SPEC_BY_NAME: Dict[str, dict[str, Any]] = {spec["name"]: spec for spec in TOOL_SPECS}
 
 
 @app.list_tools()

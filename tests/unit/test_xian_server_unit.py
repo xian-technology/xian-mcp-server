@@ -98,9 +98,7 @@ class TokenBalancePage:
     @classmethod
     def from_dict(cls, raw: dict) -> "TokenBalancePage":
         items = [
-            _TokenBalance.from_dict(item)
-            for item in raw.get("items", [])
-            if isinstance(item, dict)
+            _TokenBalance.from_dict(item) for item in raw.get("items", []) if isinstance(item, dict)
         ]
         return cls(
             available=bool(raw.get("available", False)),
@@ -560,6 +558,13 @@ class TestTokenGraphQL:
 
 
 class TestCryptography:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("message", [" hello ", "\nhello\n", " café ☃\n"])
+    async def test_sign_message_preserves_exact_text(self, message):
+        signature = (await sign_message(TEST_PRIVATE_KEY, message))["signature"]
+        assert await verify_signature(TEST_SENDER_PUBLIC_KEY, message, signature) is True
+        assert await verify_signature(TEST_SENDER_PUBLIC_KEY, message.strip(), signature) is False
+
     @pytest.mark.asyncio
     async def test_sign_message(self):
         result = await sign_message(TEST_PRIVATE_KEY, TEST_MESSAGE)
