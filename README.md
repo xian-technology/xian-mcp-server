@@ -185,8 +185,9 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 - **Two transports, one tool catalog.** Stdio MCP and HTTP REST expose the
   exact same tools and schemas. The transport is a thin shell.
 - **AI-friendly safety conventions.** Errors return human-readable strings.
-  Private keys are never logged or echoed in responses. Confirmation is
-  expected for any value-moving operation; see [CLAUDE.md](CLAUDE.md).
+  Wallet creation/import tools return secret material only under the unsafe
+  opt-in; protect their results and transcripts. Confirmation is expected for
+  value-moving operations; see [CLAUDE.md](CLAUDE.md).
 - **`xian-tech-py` is the only SDK.** All blockchain interactions go
   through `xian-tech-py`'s sync / async clients. Live DEX waits use its
   CometBFT WebSocket watcher, while indexed reads wrap its BDS surface.
@@ -283,3 +284,29 @@ Live integration tests run on a daily schedule and via manual
 - [test_requests.jsonl](test_requests.jsonl) — canonical MCP handshake
   smoke input
 - `xian-tech-py` — the underlying Python SDK
+
+## Local hybrid transaction signer
+
+An explicitly configured local service signer can use `XIAN_ACTIVE_BACKUP_FILE`,
+`XIAN_BACKUP_PASSWORD` and optionally `XIAN_SIGNER_ADDRESS`. `XIAN_CHAIN_ID` must
+match the encrypted active backup. Pass an empty `private_key` argument for
+transaction, token-send and DEX execution tools. A supplied legacy key together
+with the configured backup is rejected. Errors never fall back to another key.
+The original sender address is preserved. This grants the connected local tools
+spending access to that configured signer; the existing local-use-only guidance
+still applies. Keep cold recovery material outside the server.
+
+The generic Ed25519 message-signing/verification tools and new-wallet creation
+retain their separate legacy protocol. They do not enroll or recover hybrid
+accounts. Derive the encrypted service credential from a verified master
+backup and keep that master outside the server.
+
+## HD derivation
+
+`create_hd_wallet` and `create_hd_wallet_from_mnemonic` use Python's hardened
+SLIP-0010 path `[44, 0, 0, 0, 0]` for the Xian account. This differs from the
+indexed mnemonic scheme used by the browser/mobile wallets and
+`Wallet.from_mnemonic`. Preserve the returned derivation path when restoring.
+These tools return key material under the unsafe-wallet opt-in; their results
+must be treated as secrets. A mnemonic does not restore an enrolled account's
+independently generated hybrid master.

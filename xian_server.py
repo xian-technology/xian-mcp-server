@@ -33,6 +33,7 @@ from xian_py.wallet import HDWallet, verify_msg
 
 from dex_tools import DEX_TOOL_SPECS
 from serialization import normalize_for_transport
+from transaction_signer import signer_available, transaction_wallet
 
 # Configure logging to stderr
 logging.basicConfig(
@@ -1182,7 +1183,7 @@ async def send_transaction(
     kwargs: dict[str, Any] | None = None,
 ) -> dict[str, str] | str:
     """Send a transaction to the Xian Network."""
-    if not private_key.strip():
+    if not signer_available(private_key):
         return "❌ Error: Private key is required"
     if not contract.strip():
         return "❌ Error: Contract name is required"
@@ -1194,7 +1195,7 @@ async def send_transaction(
     logger.info("Sending transaction %s.%s", contract, function)
 
     try:
-        wallet = Wallet(private_key.strip())
+        wallet = transaction_wallet(private_key, CHAIN_ID, Wallet)
         async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
             result = await xian.send_tx(contract, function, kwargs)
             return normalize_for_transport(result)
@@ -1210,7 +1211,7 @@ async def send_tokens(
     amount: float = 0,
 ) -> dict[str, str] | str:
     """Send tokens from a specific token contract to another address."""
-    if not private_key.strip():
+    if not signer_available(private_key):
         return "❌ Error: Private key is required"
     if not token_contract.strip():
         return "❌ Error: Contract name is required"
@@ -1222,7 +1223,7 @@ async def send_tokens(
     logger.info("Sending %s %s tokens to %s", amount, token_contract, to_address)
 
     try:
-        wallet = Wallet(private_key.strip())
+        wallet = transaction_wallet(private_key, CHAIN_ID, Wallet)
         async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
             result = await xian.send(amount, to_address, token_contract)
             return normalize_for_transport(result)

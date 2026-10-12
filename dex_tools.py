@@ -18,6 +18,7 @@ from xian_py.transaction import simulate_tx_async
 
 from dex_plan_registry import ClaimedPlan, PlanRegistry
 from serialization import normalize_for_transport
+from transaction_signer import signer_available, transaction_wallet
 
 CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-local-1")
 NODE_URL = os.environ.get("XIAN_NODE_URL", "http://127.0.0.1:26657")
@@ -963,7 +964,7 @@ async def _submit_plan(
     allowed_operations: set[str],
     simulate: bool,
 ) -> dict[str, Any] | str:
-    if not private_key.strip():
+    if not signer_available(private_key):
         return _error("Private key is required")
     if not isinstance(plan_id, str) or not plan_id.strip():
         return _error("plan_id is required")
@@ -974,7 +975,7 @@ async def _submit_plan(
         claimed = PLAN_REGISTRY.claim(plan_id)
         plan = claimed.plan
         calls = _validate_plan(plan, allowed_operations)
-        wallet = Wallet(private_key.strip())
+        wallet = transaction_wallet(private_key, CHAIN_ID, Wallet)
         if plan.get("account") != wallet.public_key:
             return _error("Plan account does not match the signing wallet")
         simulations: list[Any] = []

@@ -25,6 +25,7 @@ COPY dex_plan_registry.py .
 COPY xian_server.py .
 COPY http_server.py .
 COPY serialization.py .
+COPY transaction_signer.py .
 COPY tool_policy.py .
 
 FROM base AS local
@@ -37,7 +38,7 @@ COPY --from=xian_py . /tmp/build/xian-py
 RUN uv pip install --system --no-cache --no-sources \
     /tmp/build/xian-runtime-types \
     /tmp/build/xian-accounts \
-    "/tmp/build/xian-py[eth,hd]" \
+    "/tmp/build/xian-py[eth,hd,hybrid]" \
     .
 
 # Create non-root user
@@ -53,7 +54,7 @@ CMD ["xian-mcp-server"]
 FROM base AS pypi
 
 # Install dependencies and console entry points from published packages.
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache --no-sources .
 
 # Create non-root user
 RUN useradd -m -u 1000 mcpuser && \

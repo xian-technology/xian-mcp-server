@@ -16,7 +16,7 @@ dependencies = [
   "httpx>=0.28.1,<0.29",
   "mcp[cli]>=1.27.0,<2",
   "uvicorn>=0.46.0,<0.47",
-  "xian-tech-py[eth,hd]>=0.5.0,<0.6",
+  "xian-tech-py[eth,hd,hybrid]>=0.5.0,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +36,7 @@ py-modules = [
   "dex_tools",
   "http_server",
   "serialization",
+  "transaction_signer",
   "tool_policy",
   "xian_server",
 ]
@@ -54,3 +55,8 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["F", "I"]
+
+[tool.uv.sources]
+xian-tech-accounts = { path = "../xian-contracting/packages/xian-accounts", editable = true }
+xian-tech-py = { path = "../xian-py", editable = true }
+xian-tech-runtime-types = { path = "../xian-contracting/packages/xian-runtime-types", editable = true }
