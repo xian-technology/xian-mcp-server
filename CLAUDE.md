@@ -84,18 +84,23 @@ Restores wallet from existing private key.
 - Validates key format
 - Returns: `public_key`, `private_key`
 
-#### create_hd_wallet()
+#### create_hd_wallet(account_index=0)
 Creates new HD (Hierarchical Deterministic) wallet with BIP39 mnemonic.
 - Generates a 24-word recovery phrase with current xian-tech-py defaults
-- Derives both XIAN and Ethereum wallets
-- Returns: `mnemonic`, `path`, XIAN keys, ETH keys
+- Selects an integer account index from 0 through 4294967295
+- Derives the XIAN account using the same indexed scheme as browser/mobile
+  wallets and `Wallet.from_mnemonic`; the Ethereum helper keeps account 0
+- Returns: `mnemonic`, numeric `account_index`, numeric `ethereum_account_index`
+  (always 0), XIAN keys, ETH keys
 - **User must save mnemonic securely offline**
 
-#### create_hd_wallet_from_mnemonic(mnemonic)
-Restores HD wallet from 12-word or 24-word mnemonic phrase.
+#### create_hd_wallet_from_mnemonic(mnemonic, account_index=0)
+Restores an HD wallet from a valid BIP39 mnemonic phrase.
 - Use for wallet recovery
-- Validates mnemonic format
-- Derives same wallets as original
+- Validates and normalizes mnemonic case and whitespace
+- Use the original account index to restore the same wallet; the default is 0
+- Uses the same indexed XIAN derivation as `create_hd_wallet`, browser/mobile
+  wallets, and the Python SDK; there is no XIAN derivation-path parameter
 
 ### Balance and Transaction Operations
 

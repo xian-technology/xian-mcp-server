@@ -30,6 +30,9 @@ dev = [
 xian-mcp-server = "xian_server:run_cli"
 xian-mcp-http = "http_server:run_http_server"
 
+[tool.uv.sources]
+xian-tech-py = { path = "../xian-py", editable = true }
+
 [tool.setuptools]
 py-modules = [
   "dex_plan_registry",

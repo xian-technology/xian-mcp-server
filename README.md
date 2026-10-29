@@ -211,6 +211,16 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 
 Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 
+`create_hd_wallet(account_index=0)` and
+`create_hd_wallet_from_mnemonic(mnemonic, account_index=0)` use the same indexed
+Xian mnemonic derivation as the browser/mobile wallets and Python's
+`Wallet.from_mnemonic`. The optional integer index ranges from 0 through
+4294967295. Save the phrase and selected index to restore the same address.
+Results include numeric `account_index`, the normalized phrase, and Xian and
+Ethereum keys. The Ethereum helper keeps its default account 0, identified by
+numeric `ethereum_account_index: 0` in the result. These tools remain
+behind the unsafe-wallet opt-in, and their results contain secret key material.
+
 ## Configuration
 
 | Variable           | Purpose                                                | Default                                |
@@ -248,6 +258,9 @@ file (template in `.env.example`) when using `docker-compose`.
   reference.
 
 ## Validation
+
+Local development resolves `xian-tech-py` from the sibling `../xian-py`
+checkout, so these wallet APIs and tests use the matching SDK implementation.
 
 ```bash
 uv sync --extra dev

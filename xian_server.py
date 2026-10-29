@@ -604,54 +604,42 @@ async def create_wallet_from_private_key(private_key: str = "") -> dict[str, str
         return f"❌ Error creating wallet from private key: {str(ex)}"
 
 
-async def create_hd_wallet() -> dict[str, str] | str:
-    """Create a new HD wallet."""
+def _hd_wallet_result(hd_wallet: HDWallet, account_index: int) -> dict[str, str | int]:
+    xian_wallet = hd_wallet.get_wallet(account_index)
+    eth_wallet = hd_wallet.get_ethereum_wallet()
+    return {
+        "mnemonic": hd_wallet.mnemonic_str,
+        "account_index": account_index,
+        "ethereum_account_index": 0,
+        "xian_public_key": xian_wallet.public_key,
+        "xian_private_key": xian_wallet.private_key,
+        "eth_public_key": eth_wallet.address,
+        "eth_private_key": eth_wallet.private_key,
+    }
+
+
+async def create_hd_wallet(account_index: int = 0) -> dict[str, str | int] | str:
+    """Create a mnemonic wallet at the selected account index."""
     logger.info("Creating new HD wallet")
 
     try:
-        hd_wallet = HDWallet()
-        logger.info("Created new HD wallet")
-
-        path = [44, 0, 0, 0, 0]  # m/44'/0'/0'/0'/0'
-        xian_wallet = hd_wallet.get_wallet(path)
-        eth_wallet = hd_wallet.get_ethereum_wallet(0)
-
-        return {
-            "mnemonic": hd_wallet.mnemonic_str,
-            "path": str(path),
-            "xian_public_key": xian_wallet.public_key,
-            "xian_private_key": xian_wallet.private_key,
-            "eth_public_key": eth_wallet.address,
-            "eth_private_key": eth_wallet.private_key,
-        }
+        return _hd_wallet_result(HDWallet(), account_index)
     except Exception as ex:
         logger.error("Error creating HD wallet: %s", ex)
         return f"❌ Error creating HD wallet: {str(ex)}"
 
 
-async def create_hd_wallet_from_mnemonic(mnemonic: str = "") -> dict[str, str] | str:
-    """Restore an HD wallet from mnemonic phrase."""
+async def create_hd_wallet_from_mnemonic(
+    mnemonic: str = "", account_index: int = 0
+) -> dict[str, str | int] | str:
+    """Restore a mnemonic wallet at the selected account index."""
     if not mnemonic.strip():
         return "❌ Error: Mnemonic is required"
 
     logger.info("Creating HD wallet from mnemonic")
 
     try:
-        hd_wallet = HDWallet(mnemonic.strip())
-        logger.info("Created HD wallet from mnemonic")
-
-        path = [44, 0, 0, 0, 0]  # m/44'/0'/0'/0'/0'
-        xian_wallet = hd_wallet.get_wallet(path)
-        eth_wallet = hd_wallet.get_ethereum_wallet(0)
-
-        return {
-            "mnemonic": hd_wallet.mnemonic_str,
-            "path": str(path),
-            "xian_public_key": xian_wallet.public_key,
-            "xian_private_key": xian_wallet.private_key,
-            "eth_public_key": eth_wallet.address,
-            "eth_private_key": eth_wallet.private_key,
-        }
+        return _hd_wallet_result(HDWallet(mnemonic), account_index)
     except Exception as ex:
         logger.error("Error creating HD wallet: %s", ex)
         return f"❌ Error creating HD wallet: {str(ex)}"
@@ -1888,6 +1876,14 @@ async def fetch_graphql(
 
 
 # === MCP TOOL REGISTRATION ===
+
+_ACCOUNT_INDEX_SCHEMA = {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": 2**32 - 1,
+    "default": 0,
+    "description": "Xian account index; the Ethereum helper always uses index 0",
+}
 ToolHandler = Callable[..., Awaitable[Any]]
 
 TOOL_SPECS: List[dict[str, Any]] = [
@@ -1916,21 +1912,26 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "create_hd_wallet",
-        "description": "Create a new HD (Hierarchical Deterministic) wallet with the current xian-tech-py mnemonic defaults",
-        "schema": {"type": "object", "properties": {}, "required": []},
+        "description": "Create a mnemonic wallet using browser/mobile-compatible indexed Xian derivation",
+        "schema": {
+            "type": "object",
+            "properties": {"account_index": _ACCOUNT_INDEX_SCHEMA},
+            "required": [],
+        },
         "unsafe": True,
         "handler": create_hd_wallet,
     },
     {
         "name": "create_hd_wallet_from_mnemonic",
-        "description": "Restore an HD wallet from a mnemonic phrase (12 or 24 words)",
+        "description": "Restore a BIP39 mnemonic wallet at the selected account index",
         "schema": {
             "type": "object",
             "properties": {
                 "mnemonic": {
                     "type": "string",
                     "description": "Mnemonic phrase (space separated)",
-                }
+                },
+                "account_index": _ACCOUNT_INDEX_SCHEMA,
             },
             "required": ["mnemonic"],
         },

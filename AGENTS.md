@@ -1,5 +1,16 @@
 # Repository Guidelines
 
+## Validation
+
+- Set up with `uv sync --extra dev`; the configured local source uses the
+  matching sibling `xian-py` checkout with its `eth` and `hd` extras.
+- Run deterministic tests with `uv run pytest -q`.
+- Run `uv run ruff check .` and format checks on changed Python files.
+- Smoke-test the stdio handshake with
+  `uv run python xian_server.py < test_requests.jsonl`.
+- Live-network tests are opt-in; follow the root README for their required
+  local-node configuration.
+
 ## Shared Agent Practices
 - Keep changes clean, modular, and professional. Prefer small, cohesive modules, clear naming, explicit boundaries, and tests over quick patches.
 - When code behavior, public APIs, user workflows, operator workflows, or configuration semantics change, check whether `../xian-docs-web` needs corresponding documentation updates. If this repo is `xian-docs-web`, update the relevant published docs in place. Write durable user/developer documentation, not a changelog entry.
