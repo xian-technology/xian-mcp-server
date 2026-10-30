@@ -605,7 +605,7 @@ async def create_wallet_from_private_key(private_key: str = "") -> dict[str, str
 
 
 def _hd_wallet_result(hd_wallet: HDWallet, account_index: int) -> dict[str, str | int]:
-    xian_wallet = hd_wallet.get_wallet(account_index)
+    xian_wallet = Wallet.from_mnemonic(hd_wallet.mnemonic_str, account_index=account_index)
     eth_wallet = hd_wallet.get_ethereum_wallet()
     return {
         "mnemonic": hd_wallet.mnemonic_str,
@@ -633,7 +633,8 @@ async def create_hd_wallet_from_mnemonic(
     mnemonic: str = "", account_index: int = 0
 ) -> dict[str, str | int] | str:
     """Restore a mnemonic wallet at the selected account index."""
-    if not mnemonic.strip():
+    mnemonic = " ".join(mnemonic.strip().lower().split())
+    if not mnemonic:
         return "❌ Error: Mnemonic is required"
 
     logger.info("Creating HD wallet from mnemonic")

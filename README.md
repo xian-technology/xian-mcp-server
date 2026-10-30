@@ -42,10 +42,11 @@ Build the Docker image (recommended):
 ```bash
 git clone https://github.com/xian-technology/xian-mcp-server.git
 cd xian-mcp-server
-docker compose build
+docker build --target pypi -t xian-mcp-server .
 ```
 
-Or build against a sibling SDK checkout:
+This standalone build installs published Python dependencies. To build against
+sibling SDK checkouts instead, use `docker compose build` or:
 
 ```bash
 docker buildx build --target local --load -t xian-mcp-server \
@@ -259,14 +260,30 @@ file (template in `.env.example`) when using `docker-compose`.
 
 ## Validation
 
-Local development resolves `xian-tech-py` from the sibling `../xian-py`
-checkout, so these wallet APIs and tests use the matching SDK implementation.
+The standard setup uses locked published dependencies and works without sibling
+checkouts. Mnemonic tools require `xian-tech-py` 0.5.2 or newer and use its
+`Wallet.from_mnemonic` API for canonical indexed Xian accounts.
 
 ```bash
-uv sync --extra dev
+uv sync --frozen --extra dev
 uv run pytest -q                       # deterministic unit tests
 docker run --rm -i xian-mcp-server < test_requests.jsonl   # MCP handshake smoke test
 ```
+
+To test an unreleased sibling SDK explicitly after the standard setup:
+
+```bash
+uv pip install --no-sources \
+  -e ../xian-contracting/packages/xian-runtime-types \
+  -e ../xian-contracting/packages/xian-accounts \
+  -e "../xian-py[eth,hd]"
+uv run --no-sync pytest -q
+uv run --no-sync xian-mcp-server < test_requests.jsonl
+```
+
+Use `--no-sync` while testing those overrides. Run `uv sync --frozen --extra dev`
+to return to the published dependency versions. Docker Compose and the `local`
+Docker target retain their explicit sibling build contexts.
 
 Live-network integration tests are opt-in and submit small transactions against
 the configured dev node:

@@ -32,18 +32,6 @@ jobs:
         with:
           path: xian-mcp-server
 
-      - name: Checkout xian-py
-        uses: actions/checkout@v7
-        with:
-          repository: xian-technology/xian-py
-          path: xian-py
-
-      - name: Checkout xian-contracting
-        uses: actions/checkout@v7
-        with:
-          repository: xian-technology/xian-contracting
-          path: xian-contracting
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -53,10 +41,10 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Run unit tests
-        run: uv run --extra dev pytest -q
+        run: uv run --frozen --extra dev pytest -q
 
       - name: MCP handshake smoke test
-        run: uv run xian-mcp-server < test_requests.jsonl
+        run: uv run --frozen xian-mcp-server < test_requests.jsonl
 
   integration:
     name: Integration
@@ -75,18 +63,6 @@ jobs:
         with:
           path: xian-mcp-server
 
-      - name: Checkout xian-py
-        uses: actions/checkout@v7
-        with:
-          repository: xian-technology/xian-py
-          path: xian-py
-
-      - name: Checkout xian-contracting
-        uses: actions/checkout@v7
-        with:
-          repository: xian-technology/xian-contracting
-          path: xian-contracting
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -96,4 +72,4 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Run integration tests
-        run: uv run --extra dev pytest -q tests/integration
+        run: uv run --frozen --extra dev pytest -q tests/integration

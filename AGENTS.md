@@ -2,8 +2,11 @@
 
 ## Validation
 
-- Set up with `uv sync --extra dev`; the configured local source uses the
-  matching sibling `xian-py` checkout with its `eth` and `hd` extras.
+- Set up with `uv sync --frozen --extra dev`; the lockfile uses published
+  dependencies, including the SDK's `eth` and `hd` extras. No sibling checkout
+  is required. Keep the standalone install path covered by CI.
+- For explicit sibling SDK validation, follow the README override commands
+  and use `uv run --no-sync` so uv preserves that temporary override.
 - Run deterministic tests with `uv run pytest -q`.
 - Run `uv run ruff check .` and format checks on changed Python files.
 - Smoke-test the stdio handshake with
