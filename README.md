@@ -313,3 +313,17 @@ Live integration tests run on a daily schedule and via manual
 - [test_requests.jsonl](test_requests.jsonl) — canonical MCP handshake
   smoke input
 - `xian-tech-py` — the underlying Python SDK
+
+## Operational logs
+
+Both entrypoints write bounded, single-line UTC diagnostics to stderr using
+`timestamp | LEVEL | mcp/component | message | key=value` records. Stdio stdout
+is reserved for MCP JSON-RPC. Failed tools carry a generated request ID, tool
+name, safe reason, exception type and stack locations; tool arguments, exception
+messages, locals, signing material and credential-bearing endpoints are omitted.
+Routine reads and fallback diagnostics are DEBUG; HTTP access logging is disabled.
+
+The server creates no log files. Docker or the host supervisor owns retention of
+stderr: workspace Docker defaults are 50 MiB segments, five segments per
+container, with no age guarantee. Host capture expires files after seven days and
+caps its aggregate at 250 MiB, discarding older entries sooner when necessary.

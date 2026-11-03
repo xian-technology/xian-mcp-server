@@ -32,13 +32,13 @@ import ipaddress
 import logging
 import os
 import secrets
-import sys
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from logging_setup import configure_logging, exception_context, request_context
 from serialization import normalize_for_transport
 from tool_policy import (
     UNSAFE_WALLET_TOOLS_ENV,
@@ -205,19 +205,35 @@ def create_app(
         handler = entry["handler"]
         body = body or {}
 
-        try:
-            result = await handler(**body)
-        except TypeError as ex:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid arguments for {tool_name}: {ex}",
-            )
-        except Exception as ex:
-            logger.error("Error executing tool %s: %s", tool_name, ex, exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Tool execution failed: {ex}",
-            )
+        with request_context(tool_name):
+            try:
+                result = await handler(**body)
+            except TypeError as ex:
+                logger.warning(
+                    "Invalid tool arguments",
+                    extra={
+                        **exception_context(ex),
+                        "tool": tool_name,
+                        "reason": "invalid_arguments",
+                    },
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid arguments for {tool_name}: {ex}",
+                )
+            except Exception as ex:
+                logger.error(
+                    "Tool execution failed",
+                    extra={
+                        **exception_context(ex),
+                        "tool": tool_name,
+                        "reason": "tool_execution_failed",
+                    },
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Tool execution failed: {ex}",
+                )
 
         # Normalize error responses from tool handlers
         if isinstance(result, str) and result.startswith("❌"):
@@ -238,17 +254,13 @@ def create_app(
 def run_http_server() -> None:
     import uvicorn
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr,
-    )
+    configure_logging()
 
     host = os.environ.get(HTTP_HOST_ENV, DEFAULT_HTTP_HOST)
     port = int(os.environ.get(HTTP_PORT_ENV, DEFAULT_HTTP_PORT))
 
     logger.info("Starting MCP HTTP Bridge on %s:%d", host, port)
-    uvicorn.run(create_app(bind_host=host), host=host, port=port, log_level="info")
+    uvicorn.run(create_app(bind_host=host), host=host, port=port, log_config=None, access_log=False)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -32,14 +31,9 @@ from xian_py.transaction import simulate_tx_async
 from xian_py.wallet import HDWallet, verify_msg
 
 from dex_tools import DEX_TOOL_SPECS
+from logging_setup import configure_logging, exception_context, request_context
 from serialization import normalize_for_transport
 
-# Configure logging to stderr
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
-)
 logger = logging.getLogger("xian-server")
 
 # Configuration
@@ -573,7 +567,7 @@ async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
 # === CORE TOOLS (kept compatible with existing tests) ===
 async def create_wallet() -> dict[str, str] | str:
     """Create a new XIAN wallet with a random seed."""
-    logger.info("Creating new wallet")
+    logger.debug("Creating new wallet")
 
     try:
         wallet = Wallet()
@@ -582,7 +576,7 @@ async def create_wallet() -> dict[str, str] | str:
             "private_key": wallet.private_key,
         }
     except Exception as ex:
-        logger.error("Error creating wallet: %s", ex)
+        logger.error("Error creating wallet", extra=exception_context(ex))
         return f"❌ Error creating wallet: {str(ex)}"
 
 
@@ -591,7 +585,7 @@ async def create_wallet_from_private_key(private_key: str = "") -> dict[str, str
     if not private_key.strip():
         return "❌ Error: Private key is required"
 
-    logger.info("Creating wallet from private key")
+    logger.debug("Creating wallet from private key")
 
     try:
         wallet = Wallet(private_key.strip())
@@ -600,7 +594,7 @@ async def create_wallet_from_private_key(private_key: str = "") -> dict[str, str
             "private_key": wallet.private_key,
         }
     except Exception as ex:
-        logger.error("Error creating wallet from private key: %s", ex)
+        logger.error("Error creating wallet from private key", extra=exception_context(ex))
         return f"❌ Error creating wallet from private key: {str(ex)}"
 
 
@@ -620,12 +614,12 @@ def _hd_wallet_result(hd_wallet: HDWallet, account_index: int) -> dict[str, str 
 
 async def create_hd_wallet(account_index: int = 0) -> dict[str, str | int] | str:
     """Create a mnemonic wallet at the selected account index."""
-    logger.info("Creating new HD wallet")
+    logger.debug("Creating new HD wallet")
 
     try:
         return _hd_wallet_result(HDWallet(), account_index)
     except Exception as ex:
-        logger.error("Error creating HD wallet: %s", ex)
+        logger.error("Error creating HD wallet", extra=exception_context(ex))
         return f"❌ Error creating HD wallet: {str(ex)}"
 
 
@@ -637,12 +631,12 @@ async def create_hd_wallet_from_mnemonic(
     if not mnemonic:
         return "❌ Error: Mnemonic is required"
 
-    logger.info("Creating HD wallet from mnemonic")
+    logger.debug("Creating HD wallet from mnemonic")
 
     try:
         return _hd_wallet_result(HDWallet(mnemonic), account_index)
     except Exception as ex:
-        logger.error("Error creating HD wallet: %s", ex)
+        logger.error("Error creating HD wallet", extra=exception_context(ex))
         return f"❌ Error creating HD wallet: {str(ex)}"
 
 
@@ -651,7 +645,7 @@ async def get_balance(address: str = "", token_contract: str = "currency") -> di
     if not address.strip():
         return "❌ Error: Address is required"
 
-    logger.info("Getting balance for %s", address)
+    logger.debug("Getting balance for %s", address)
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
@@ -666,7 +660,7 @@ async def get_balance(address: str = "", token_contract: str = "currency") -> di
                 }
             )
     except Exception as ex:
-        logger.error("Error getting balance: %s", ex)
+        logger.error("Error getting balance", extra=exception_context(ex))
         return f"❌ Error getting balance: {str(ex)}"
 
 
@@ -691,7 +685,7 @@ async def get_token_balances(
     if offset < 0:
         return "❌ Error: Offset must be zero or greater"
 
-    logger.info("Getting token balances for %s", address)
+    logger.debug("Getting token balances for %s", address)
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
@@ -703,7 +697,9 @@ async def get_token_balances(
             )
             return normalize_for_transport(balances)
     except Exception as ex:
-        logger.info("BDS token balances unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS token balances unavailable, falling back to GraphQL", extra=exception_context(ex)
+        )
 
     try:
         return await _graphql_get_token_balances(
@@ -713,7 +709,7 @@ async def get_token_balances(
             include_zero=include_zero,
         )
     except Exception as ex:
-        logger.error("Error getting token balances: %s", ex)
+        logger.error("Error getting token balances", extra=exception_context(ex))
         return f"❌ Error getting token balances: {str(ex)}"
 
 
@@ -722,7 +718,9 @@ async def get_bds_status() -> dict[str, Any] | str:
     try:
         return await _call_indexed_read("get_bds_status")
     except Exception as ex:
-        logger.info("BDS status unavailable, falling back to RPC status: %s", ex)
+        logger.debug(
+            "BDS status unavailable, falling back to RPC status", extra=exception_context(ex)
+        )
 
     try:
         status = await _fetch_rpc_json("status")
@@ -750,7 +748,7 @@ async def get_bds_status() -> dict[str, Any] | str:
             ],
         }
     except Exception as ex:
-        logger.error("Error getting BDS status: %s", ex)
+        logger.error("Error getting BDS status", extra=exception_context(ex))
         return f"❌ Error getting BDS status: {str(ex)}"
 
 
@@ -765,12 +763,15 @@ async def get_developer_rewards(recipient_key: str = "") -> dict[str, Any] | str
             recipient_key.strip(),
         )
     except Exception as ex:
-        logger.info("BDS developer rewards unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS developer rewards unavailable, falling back to GraphQL",
+            extra=exception_context(ex),
+        )
 
     try:
         return await _graphql_get_developer_rewards(recipient_key.strip())
     except Exception as ex:
-        logger.error("Error getting developer rewards: %s", ex)
+        logger.error("Error getting developer rewards", extra=exception_context(ex))
         return f"❌ Error getting developer rewards: {str(ex)}"
 
 
@@ -792,12 +793,14 @@ async def list_blocks(
             offset=offset,
         )
     except Exception as ex:
-        logger.info("BDS block listing unavailable, falling back to RPC: %s", ex)
+        logger.debug(
+            "BDS block listing unavailable, falling back to RPC", extra=exception_context(ex)
+        )
 
     try:
         return await _list_rpc_blocks(limit=limit, offset=offset)
     except Exception as ex:
-        logger.error("Error listing blocks: %s", ex)
+        logger.error("Error listing blocks", extra=exception_context(ex))
         return f"❌ Error listing blocks: {str(ex)}"
 
 
@@ -813,12 +816,14 @@ async def get_block(height: int) -> dict[str, Any] | None | str:
         if result is not None:
             return result
     except Exception as ex:
-        logger.info("BDS block lookup unavailable, falling back to RPC: %s", ex)
+        logger.debug(
+            "BDS block lookup unavailable, falling back to RPC", extra=exception_context(ex)
+        )
 
     try:
         return await _get_rpc_block(height)
     except Exception as ex:
-        logger.error("Error getting block: %s", ex)
+        logger.error("Error getting block", extra=exception_context(ex))
         return f"❌ Error getting block: {str(ex)}"
 
 
@@ -832,12 +837,14 @@ async def get_block_by_hash(block_hash: str = "") -> dict[str, Any] | None | str
         if result is not None:
             return result
     except Exception as ex:
-        logger.info("BDS block hash lookup unavailable, falling back to RPC: %s", ex)
+        logger.debug(
+            "BDS block hash lookup unavailable, falling back to RPC", extra=exception_context(ex)
+        )
 
     try:
         return await _get_rpc_block_by_hash(block_hash.strip())
     except Exception as ex:
-        logger.error("Error getting block by hash: %s", ex)
+        logger.error("Error getting block by hash", extra=exception_context(ex))
         return f"❌ Error getting block by hash: {str(ex)}"
 
 
@@ -851,12 +858,15 @@ async def get_indexed_tx(tx_hash: str = "") -> dict[str, Any] | None | str:
         if result is not None:
             return result
     except Exception as ex:
-        logger.info("BDS transaction lookup unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS transaction lookup unavailable, falling back to GraphQL",
+            extra=exception_context(ex),
+        )
 
     try:
         return await _graphql_get_indexed_tx(tx_hash.strip())
     except Exception as ex:
-        logger.error("Error getting indexed transaction: %s", ex)
+        logger.error("Error getting indexed transaction", extra=exception_context(ex))
         return f"❌ Error getting indexed transaction: {str(ex)}"
 
 
@@ -872,7 +882,10 @@ async def list_txs_for_block(
     try:
         return await _call_indexed_read("list_txs_for_block", block_ref)
     except Exception as ex:
-        logger.info("BDS block transaction list unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS block transaction list unavailable, falling back to GraphQL",
+            extra=exception_context(ex),
+        )
 
     try:
         condition = (
@@ -886,7 +899,7 @@ async def list_txs_for_block(
             offset=0,
         )
     except Exception as ex:
-        logger.error("Error listing transactions for block: %s", ex)
+        logger.error("Error listing transactions for block", extra=exception_context(ex))
         return f"❌ Error listing transactions for block: {str(ex)}"
 
 
@@ -913,7 +926,10 @@ async def list_txs_by_sender(
             offset=offset,
         )
     except Exception as ex:
-        logger.info("BDS sender transaction list unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS sender transaction list unavailable, falling back to GraphQL",
+            extra=exception_context(ex),
+        )
 
     try:
         return await _graphql_list_txs_by_condition(
@@ -922,7 +938,7 @@ async def list_txs_by_sender(
             offset=offset,
         )
     except Exception as ex:
-        logger.error("Error listing transactions by sender: %s", ex)
+        logger.error("Error listing transactions by sender", extra=exception_context(ex))
         return f"❌ Error listing transactions by sender: {str(ex)}"
 
 
@@ -949,7 +965,10 @@ async def list_txs_by_contract(
             offset=offset,
         )
     except Exception as ex:
-        logger.info("BDS contract transaction list unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS contract transaction list unavailable, falling back to GraphQL",
+            extra=exception_context(ex),
+        )
 
     try:
         return await _graphql_list_txs_by_condition(
@@ -958,7 +977,7 @@ async def list_txs_by_contract(
             offset=offset,
         )
     except Exception as ex:
-        logger.error("Error listing transactions by contract: %s", ex)
+        logger.error("Error listing transactions by contract", extra=exception_context(ex))
         return f"❌ Error listing transactions by contract: {str(ex)}"
 
 
@@ -970,7 +989,7 @@ async def get_events_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
     try:
         return await _call_indexed_read("get_events_for_tx", tx_hash.strip())
     except Exception as ex:
-        logger.error("Error getting events for transaction: %s", ex)
+        logger.error("Error getting events for transaction", extra=exception_context(ex))
         return f"❌ Error getting events for transaction: {str(ex)}"
 
 
@@ -1005,7 +1024,7 @@ async def list_events(
             after_id=after_id,
         )
     except Exception as ex:
-        logger.error("Error listing events: %s", ex)
+        logger.error("Error listing events", extra=exception_context(ex))
         return f"❌ Error listing events: {str(ex)}"
 
 
@@ -1032,7 +1051,9 @@ async def get_state_history(
             offset=offset,
         )
     except Exception as ex:
-        logger.info("BDS state history unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS state history unavailable, falling back to GraphQL", extra=exception_context(ex)
+        )
 
     try:
         return await _graphql_get_state_changes(
@@ -1041,7 +1062,7 @@ async def get_state_history(
             offset=offset,
         )
     except Exception as ex:
-        logger.error("Error getting state history: %s", ex)
+        logger.error("Error getting state history", extra=exception_context(ex))
         return f"❌ Error getting state history: {str(ex)}"
 
 
@@ -1053,7 +1074,9 @@ async def get_state_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
     try:
         return await _call_indexed_read("get_state_for_tx", tx_hash.strip())
     except Exception as ex:
-        logger.info("BDS state-for-tx unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS state-for-tx unavailable, falling back to GraphQL", extra=exception_context(ex)
+        )
 
     try:
         return await _graphql_get_state_changes(
@@ -1062,7 +1085,7 @@ async def get_state_for_tx(tx_hash: str = "") -> list[dict[str, Any]] | str:
             offset=0,
         )
     except Exception as ex:
-        logger.error("Error getting state for transaction: %s", ex)
+        logger.error("Error getting state for transaction", extra=exception_context(ex))
         return f"❌ Error getting state for transaction: {str(ex)}"
 
 
@@ -1078,12 +1101,14 @@ async def get_state_for_block(
     try:
         return await _call_indexed_read("get_state_for_block", block_ref)
     except Exception as ex:
-        logger.info("BDS state-for-block unavailable, falling back to GraphQL: %s", ex)
+        logger.debug(
+            "BDS state-for-block unavailable, falling back to GraphQL", extra=exception_context(ex)
+        )
 
     try:
         return await _graphql_get_state_for_block(block_ref)
     except Exception as ex:
-        logger.error("Error getting state for block: %s", ex)
+        logger.error("Error getting state for block", extra=exception_context(ex))
         return f"❌ Error getting state for block: {str(ex)}"
 
 
@@ -1121,7 +1146,7 @@ async def list_shielded_output_tags(
         status = await get_bds_status()
         if isinstance(status, dict) and status.get("available") is False:
             return "❌ Error: BDS shielded output tag index is unavailable on the configured node"
-        logger.error("Error listing shielded output tags: %s", ex)
+        logger.error("Error listing shielded output tags", extra=exception_context(ex))
         return f"❌ Error listing shielded output tags: {str(ex)}"
 
 
@@ -1160,7 +1185,7 @@ async def list_shielded_wallet_history(
             return (
                 "❌ Error: BDS shielded wallet history index is unavailable on the configured node"
             )
-        logger.error("Error listing shielded wallet history: %s", ex)
+        logger.error("Error listing shielded wallet history", extra=exception_context(ex))
         return f"❌ Error listing shielded wallet history: {str(ex)}"
 
 
@@ -1180,7 +1205,7 @@ async def send_transaction(
     if kwargs is None:
         kwargs = {}
 
-    logger.info("Sending transaction %s.%s", contract, function)
+    logger.debug("Sending transaction %s.%s", contract, function)
 
     try:
         wallet = Wallet(private_key.strip())
@@ -1188,7 +1213,7 @@ async def send_transaction(
             result = await xian.send_tx(contract, function, kwargs)
             return normalize_for_transport(result)
     except Exception as ex:
-        logger.error("Error sending transaction: %s", ex)
+        logger.error("Error sending transaction", extra=exception_context(ex))
         return f"❌ Error sending transaction: {str(ex)}"
 
 
@@ -1208,7 +1233,7 @@ async def send_tokens(
     if amount <= 0:
         return "❌ Error: Amount is required"
 
-    logger.info("Sending %s %s tokens to %s", amount, token_contract, to_address)
+    logger.debug("Sending %s %s tokens to %s", amount, token_contract, to_address)
 
     try:
         wallet = Wallet(private_key.strip())
@@ -1216,7 +1241,7 @@ async def send_tokens(
             result = await xian.send(amount, to_address, token_contract)
             return normalize_for_transport(result)
     except Exception as ex:
-        logger.error("Error sending tokens: %s", ex)
+        logger.error("Error sending tokens", extra=exception_context(ex))
         return f"❌ Error sending tokens: {str(ex)}"
 
 
@@ -1230,7 +1255,7 @@ async def get_transaction(tx_hash: str = "") -> dict[str, Any] | str:
             tx = await xian.get_tx(tx_hash)
             return normalize_for_transport(tx)
     except Exception as ex:
-        logger.error("Error retrieving transaction: %s", ex)
+        logger.error("Error retrieving transaction", extra=exception_context(ex))
         return f"❌ Error retrieving transaction: {str(ex)}"
 
 
@@ -1239,7 +1264,7 @@ async def get_state(state_key: str) -> dict[str, Any] | str:
     if not state_key.strip():
         return "❌ Error: State key is required"
 
-    logger.info("Getting state for key %s", state_key)
+    logger.debug("Getting state for key %s", state_key)
 
     contract, _, rest = state_key.strip().partition(".")
     parts = rest.split(":")
@@ -1258,7 +1283,7 @@ async def get_state(state_key: str) -> dict[str, Any] | str:
                 "state_value": normalize_for_transport(state),
             }
     except Exception as ex:
-        logger.error("Error getting state: %s", ex)
+        logger.error("Error getting state", extra=exception_context(ex))
         return f"❌ Error getting state: {str(ex)}"
 
 
@@ -1267,7 +1292,7 @@ async def get_contract_source(contract_name: str = "") -> dict[str, str] | str:
     if not contract_name.strip():
         return "❌ Error: Contract name is required"
 
-    logger.info("Getting contract source %s", contract_name)
+    logger.debug("Getting contract source %s", contract_name)
 
     try:
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
@@ -1279,7 +1304,7 @@ async def get_contract_source(contract_name: str = "") -> dict[str, str] | str:
                 "source": source,
             }
     except Exception as ex:
-        logger.error("Error getting contract source: %s", ex)
+        logger.error("Error getting contract source", extra=exception_context(ex))
         return f"❌ Error getting contract source: {str(ex)}"
 
 
@@ -1299,7 +1324,7 @@ async def simulate_transaction(
     if kwargs is None:
         kwargs = {}
 
-    logger.info("Simulating %s.%s", contract, function)
+    logger.debug("Simulating %s.%s", contract, function)
 
     try:
         payload = {
@@ -1311,7 +1336,7 @@ async def simulate_transaction(
 
         return normalize_for_transport(await simulate_tx_async(NODE_URL, payload))
     except Exception as ex:
-        logger.error("Error simulating transaction: %s", ex)
+        logger.error("Error simulating transaction", extra=exception_context(ex))
         return f"❌ Error simulating transaction: {str(ex)}"
 
 
@@ -1322,7 +1347,7 @@ async def sign_message(private_key: str = "", message: str = "") -> dict[str, st
     if not message.strip():
         return "❌ Error: Message is required"
 
-    logger.info("Signing message")
+    logger.debug("Signing message")
 
     try:
         wallet = Wallet(private_key.strip())
@@ -1332,7 +1357,7 @@ async def sign_message(private_key: str = "", message: str = "") -> dict[str, st
             "signature": signature,
         }
     except Exception as ex:
-        logger.error("Error signing message: %s", ex)
+        logger.error("Error signing message", extra=exception_context(ex))
         return f"❌ Error signing message: {str(ex)}"
 
 
@@ -1345,12 +1370,12 @@ async def verify_signature(address: str = "", message: str = "", signature: str 
     if not signature.strip():
         return "❌ Error: Signature is required"
 
-    logger.info("Verifying signature")
+    logger.debug("Verifying signature")
 
     try:
         return verify_msg(address, message, signature)
     except Exception as ex:
-        logger.error("Error verifying signature: %s", ex)
+        logger.error("Error verifying signature", extra=exception_context(ex))
         return f"❌ Error verifying signature: {str(ex)}"
 
 
@@ -1367,7 +1392,7 @@ async def encrypt_message(
     if not message.strip():
         return "❌ Error: Message is required"
 
-    logger.info("Encrypting message")
+    logger.debug("Encrypting message")
 
     try:
         sender_wallet = Wallet(sender_private_key.strip())
@@ -1384,7 +1409,7 @@ async def encrypt_message(
             "encrypted_message": encrypted,
         }
     except Exception as ex:
-        logger.error("Error encrypting message: %s", ex)
+        logger.error("Error encrypting message", extra=exception_context(ex))
         return f"❌ Error encrypting message: {str(ex)}"
 
 
@@ -1401,7 +1426,7 @@ async def decrypt_message(
     if not encrypted_message.strip():
         return "❌ Error: Encrypted message is required"
 
-    logger.info("Decrypting message")
+    logger.debug("Decrypting message")
 
     try:
         receiver_wallet = Wallet(receiver_private_key.strip())
@@ -1418,7 +1443,7 @@ async def decrypt_message(
             "decrypted_message": decrypted,
         }
     except Exception as ex:
-        logger.error("Error decrypting message: %s", ex)
+        logger.error("Error decrypting message", extra=exception_context(ex))
         return f"❌ Error decrypting message: {str(ex)}"
 
 
@@ -1431,9 +1456,9 @@ async def get_token_contract_by_symbol(token_symbol: str = "") -> dict[str, Any]
         try:
             tokens = await _bds_get_tokens()
         except Exception as ex:
-            logger.info(
-                "BDS token contract listing unavailable, falling back to GraphQL: %s",
-                ex,
+            logger.debug(
+                "BDS token contract listing unavailable, falling back to GraphQL",
+                extra=exception_context(ex),
             )
             tokens = await get_tokens()
 
@@ -1460,7 +1485,7 @@ async def get_token_contract_by_symbol(token_symbol: str = "") -> dict[str, Any]
             "message": "Multiple tokens found with this symbol",
         }
     except Exception as ex:
-        logger.error("Error getting token contract: %s", ex)
+        logger.error("Error getting token contract", extra=exception_context(ex))
         return f"❌ Error getting token contract: {str(ex)}"
 
 
@@ -1502,9 +1527,9 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
         try:
             return await _bds_get_token_data(contract)
         except Exception as ex:
-            logger.info(
-                "BDS token metadata unavailable, falling back to GraphQL: %s",
-                ex,
+            logger.debug(
+                "BDS token metadata unavailable, falling back to GraphQL",
+                extra=exception_context(ex),
             )
 
         data = await fetch_graphql(
@@ -1520,7 +1545,7 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
         return data
 
     except Exception as ex:
-        logger.error("Error getting token data: %s", ex)
+        logger.error("Error getting token data", extra=exception_context(ex))
         return f"❌ Error getting token data: {str(ex)}"
 
 
@@ -1561,7 +1586,7 @@ async def buy_on_dex(
     if amount <= 0:
         return "❌ Error: Amount must be positive"
 
-    logger.info("Buying %s %s with %s", amount, buy_token, sell_token)
+    logger.debug("Buying %s %s with %s", amount, buy_token, sell_token)
 
     try:
         amount_value = _decimal_payload_value(amount)
@@ -1579,7 +1604,7 @@ async def buy_on_dex(
             },
         )
     except Exception as ex:
-        logger.error("Error buying on DEX: %s", ex)
+        logger.error("Error buying on DEX", extra=exception_context(ex))
         return f"❌ Error buying on DEX: {str(ex)}"
 
 
@@ -1601,7 +1626,7 @@ async def sell_on_dex(
     if amount <= 0:
         return "❌ Error: Amount must be positive"
 
-    logger.info("Selling %s %s for %s", amount, sell_token, buy_token)
+    logger.debug("Selling %s %s for %s", amount, sell_token, buy_token)
 
     try:
         amount_value = _decimal_payload_value(amount)
@@ -1621,7 +1646,7 @@ async def sell_on_dex(
             },
         )
     except Exception as ex:
-        logger.error("Error selling on DEX: %s", ex)
+        logger.error("Error selling on DEX", extra=exception_context(ex))
         return f"❌ Error selling on DEX: {str(ex)}"
 
 
@@ -1680,7 +1705,7 @@ async def get_dex_price(
         )
 
     except Exception as ex:
-        logger.error("Error getting DEX price: %s", ex)
+        logger.error("Error getting DEX price", extra=exception_context(ex))
         return f"❌ Error getting DEX price: {str(ex)}"
 
 
@@ -1828,7 +1853,7 @@ async def get_tokens() -> list[dict]:
         return tokens
 
     except Exception as ex:
-        logger.error("Error getting tokens: %s", ex)
+        logger.error("Error getting tokens", extra=exception_context(ex))
         raise
 
 
@@ -1869,10 +1894,10 @@ async def fetch_graphql(
                 return result.get("data", {})
 
         except aiohttp.ClientError as ex:
-            logger.error("HTTP error fetching GraphQL: %s", ex)
+            logger.error("HTTP error fetching GraphQL", extra=exception_context(ex))
             raise Exception(f"Failed to fetch GraphQL: {str(ex)}")
         except Exception as ex:
-            logger.error("Error fetching GraphQL: %s", ex)
+            logger.error("Error fetching GraphQL", extra=exception_context(ex))
             raise
 
 
@@ -2668,14 +2693,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     if handler is None:
         return format_error_response(f"Unknown tool: {name}")
 
-    try:
-        result = await handler(**arguments)
-    except TypeError as ex:
-        logger.error("Invalid arguments for %s: %s", name, ex)
-        return format_error_response(f"Invalid arguments for {name}: {ex}")
-    except Exception as ex:
-        logger.error("Error executing tool %s: %s", name, ex, exc_info=True)
-        return format_error_response(str(ex))
+    with request_context(name):
+        try:
+            result = await handler(**arguments)
+        except TypeError as ex:
+            logger.warning(
+                "Invalid tool arguments",
+                extra={**exception_context(ex), "tool": name, "reason": "invalid_arguments"},
+            )
+            return format_error_response(f"Invalid arguments for {name}: {ex}")
+        except Exception as ex:
+            logger.error(
+                "Tool execution failed",
+                extra={**exception_context(ex), "tool": name, "reason": "tool_execution_failed"},
+            )
+            return format_error_response(str(ex))
 
     if isinstance(result, str) and result.startswith("❌"):
         return format_error_response(f"{name}: {result[2:].strip()}")
@@ -2687,8 +2719,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 async def main() -> None:
     logger.info("Starting XIAN Network MCP server...")
     logger.info("Chain ID: %s", CHAIN_ID)
-    logger.info("Node URL: %s", NODE_URL)
-    logger.info("GraphQL : %s", GRAPHQL)
     logger.info(
         "Unsafe wallet tools enabled: %s",
         _unsafe_wallet_tools_enabled(),
@@ -2703,6 +2733,7 @@ async def main() -> None:
 
 
 def run_cli() -> None:
+    configure_logging()
     asyncio.run(main())
 
 
