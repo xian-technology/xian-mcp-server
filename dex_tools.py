@@ -10,20 +10,20 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal, localcontext
 from typing import Any
 
 from xian_py import Wallet, XianAsync
 from xian_py.transaction import simulate_tx_async
+from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 
 from dex_plan_registry import ClaimedPlan, PlanRegistry
-from serialization import normalize_for_transport
+from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
+from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL
 
-CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-local-1")
-NODE_URL = os.environ.get("XIAN_NODE_URL", "http://127.0.0.1:26657")
 PAIRS_CONTRACT = "con_pairs"
 ROUTER_CONTRACT = "con_dex"
-PLAN_VERSION = 1
+PLAN_VERSION = 2
 MAX_ROUTE_PAIRS = 500
 PLAN_TTL_ENV = "XIAN_MCP_DEX_PLAN_TTL_SECONDS"
 PLAN_CAPACITY_ENV = "XIAN_MCP_DEX_PLAN_MAX_ENTRIES"
@@ -64,17 +64,12 @@ def _error(message: str) -> dict[str, Any]:
     return {"ok": False, "error": message}
 
 
-def _decimal(value: Any, *, field: str, positive: bool = False) -> Decimal:
-    if isinstance(value, bool):
-        raise ValueError(f"{field} must be a number")
-    try:
-        result = Decimal(str(value))
-    except Exception as exc:
-        raise ValueError(f"{field} must be a number") from exc
-    if not result.is_finite() or (positive and result <= 0):
-        qualifier = "a positive" if positive else "a finite"
-        raise ValueError(f"{field} must be {qualifier} number")
-    return result
+def _decimal(value: Any, *, field: str, positive: bool = False) -> ContractingDecimal:
+    return ContractingDecimal(exact_amount(value, field=field, positive=positive))
+
+
+def _wire_amount(value: ContractingDecimal) -> dict[str, str]:
+    return {"__fixed__": canonical_fixed(value)}
 
 
 def _positive_int(value: Any, *, field: str) -> int:
@@ -109,7 +104,9 @@ def _slippage_bps(value: Any) -> int:
 
 
 def _deadline(minutes: Any) -> tuple[dict[str, list[int]], str]:
-    minutes_value = _decimal(minutes, field="Deadline minutes", positive=True)
+    minutes_value = Decimal(str(minutes))
+    if not minutes_value.is_finite() or minutes_value <= 0:
+        raise ValueError("Deadline minutes must be positive")
     future = datetime.now(UTC) + timedelta(seconds=float(minutes_value * 60))
     encoded = {
         "__time__": [
@@ -126,13 +123,13 @@ def _deadline(minutes: Any) -> tuple[dict[str, list[int]], str]:
 
 
 async def _call(contract: str, function: str, **kwargs: Any) -> Any:
-    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-        return normalize_for_transport(await xian.contract(contract).call(function, kwargs=kwargs))
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
+        return await xian.contract(contract).call(function, kwargs=kwargs)
 
 
 async def _state(contract: str, variable: str, *keys: Any) -> Any:
-    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
-        return normalize_for_transport(await xian.get_state(contract, variable, *keys))
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
+        return await xian.get_state(contract, variable, *keys)
 
 
 async def _pair_record(pair_id: int) -> dict[str, Any] | None:
@@ -158,9 +155,9 @@ async def _pair_record(pair_id: int) -> dict[str, Any] | None:
         "pair_id": pair_id,
         "token0": str(token0),
         "token1": str(token1),
-        "reserve0": float(values[2] or 0),
-        "reserve1": float(values[3] or 0),
-        "total_supply": float(values[4] or 0),
+        "reserve0": ContractingDecimal(values[2] or 0),
+        "reserve1": ContractingDecimal(values[3] or 0),
+        "total_supply": ContractingDecimal(values[4] or 0),
         "lp_token": None if values[5] in (None, 0) else str(values[5]),
         "block_timestamp_last": values[6],
         "creation_time": values[7],
@@ -321,15 +318,20 @@ async def _token_precision(token: str) -> int | None:
     return precision if isinstance(precision, int) and precision >= 0 else None
 
 
-async def _normalize_amount(value: Decimal, token: str, *, round_up: bool = False) -> Decimal:
+async def _normalize_amount(
+    value: ContractingDecimal, token: str, *, round_up: bool = False
+) -> ContractingDecimal:
     precision = await _token_precision(token)
-    if precision is None:
+    if precision is None or precision >= 30:
         return value
-    scale = Decimal(10) ** precision
-    scaled = value * scale
-    if round_up:
-        return scaled.to_integral_value(rounding=ROUND_CEILING) / scale
-    return Decimal(int(scaled)) / scale
+    # Quantize in integer base units without overflowing on large token balances.
+    with localcontext() as context:
+        context.prec = 91
+        unit = Decimal((0, (1,), -precision))
+        rounded = Decimal(str(value)).quantize(
+            unit, rounding=ROUND_CEILING if round_up else ROUND_DOWN
+        )
+    return ContractingDecimal(rounded)
 
 
 async def _fee_bps(account: str) -> int:
@@ -348,7 +350,7 @@ async def _quote_path_exact_in(
     pairs_by_id: dict[int, dict[str, Any]],
     token_in: str,
     path: list[int],
-    amount_in: Decimal,
+    amount_in: ContractingDecimal,
     fee_bps: int,
 ) -> dict[str, Any]:
     hops, token_out = _route_hops(pairs_by_id, token_in, path)
@@ -356,31 +358,35 @@ async def _quote_path_exact_in(
     amounts = [amount]
     mid_amount = amount
     detailed: list[dict[str, Any]] = []
-    multiplier = Decimal(10_000 - fee_bps) / Decimal(10_000)
+    multiplier = ContractingDecimal(10_000 - fee_bps) / ContractingDecimal(10_000)
     for hop in hops:
-        reserve_in = Decimal(str(hop["reserve_in"]))
-        reserve_out = Decimal(str(hop["reserve_out"]))
+        reserve_in = ContractingDecimal(str(hop["reserve_in"]))
+        reserve_out = ContractingDecimal(str(hop["reserve_out"]))
         amount_with_fee = amount * multiplier
         output = (amount_with_fee * reserve_out) / (reserve_in + amount_with_fee)
         output = await _normalize_amount(output, hop["token_out"])
         mid_amount = mid_amount * reserve_out / reserve_in
-        detailed.append({**hop, "amount_in": float(amount), "amount_out": float(output)})
+        detailed.append({**hop, "amount_in": amount, "amount_out": output})
         amount = output
         amounts.append(amount)
-    impact = Decimal(0) if mid_amount <= 0 else max(Decimal(0), 1 - amount / mid_amount)
+    impact = (
+        ContractingDecimal(0)
+        if mid_amount <= 0
+        else max(ContractingDecimal(0), 1 - amount / mid_amount)
+    )
     return {
         "kind": "exact_in",
         "token_in": token_in,
         "token_out": token_out,
         "path": path,
-        "amount_in": float(amounts[0]),
-        "amount_out": float(amounts[-1]),
-        "amounts": [float(value) for value in amounts],
+        "amount_in": amounts[0],
+        "amount_out": amounts[-1],
+        "amounts": amounts,
         "hops": detailed,
         "fee_bps": fee_bps,
-        "mid_price_output": float(mid_amount),
-        "price_impact": float(impact),
-        "price_impact_bps": float(impact * 10_000),
+        "mid_price_output": mid_amount,
+        "price_impact": impact,
+        "price_impact_bps": impact * 10_000,
     }
 
 
@@ -388,18 +394,18 @@ async def _quote_path_exact_out(
     pairs_by_id: dict[int, dict[str, Any]],
     token_in: str,
     path: list[int],
-    amount_out: Decimal,
+    amount_out: ContractingDecimal,
     fee_bps: int,
 ) -> dict[str, Any]:
     hops, token_out = _route_hops(pairs_by_id, token_in, path)
     desired = await _normalize_amount(amount_out, token_out, round_up=True)
-    amounts: list[Decimal] = [Decimal(0)] * (len(hops) + 1)
+    amounts: list[ContractingDecimal] = [ContractingDecimal(0)] * (len(hops) + 1)
     amounts[-1] = desired
-    multiplier = Decimal(10_000 - fee_bps) / Decimal(10_000)
+    multiplier = ContractingDecimal(10_000 - fee_bps) / ContractingDecimal(10_000)
     for index in range(len(hops) - 1, -1, -1):
         hop = hops[index]
-        reserve_in = Decimal(str(hop["reserve_in"]))
-        reserve_out = Decimal(str(hop["reserve_out"]))
+        reserve_in = ContractingDecimal(str(hop["reserve_in"]))
+        reserve_out = ContractingDecimal(str(hop["reserve_out"]))
         required_out = amounts[index + 1]
         if required_out >= reserve_out:
             raise ValueError(f"Pair {hop['pair_id']} has insufficient liquidity")
@@ -407,10 +413,18 @@ async def _quote_path_exact_out(
         amounts[index] = await _normalize_amount(required_in, hop["token_in"], round_up=True)
     mid_input = desired
     for hop in reversed(hops):
-        mid_input = mid_input * Decimal(str(hop["reserve_in"])) / Decimal(str(hop["reserve_out"]))
-    impact = Decimal(0) if amounts[0] <= 0 else max(Decimal(0), 1 - mid_input / amounts[0])
+        mid_input = (
+            mid_input
+            * ContractingDecimal(str(hop["reserve_in"]))
+            / ContractingDecimal(str(hop["reserve_out"]))
+        )
+    impact = (
+        ContractingDecimal(0)
+        if amounts[0] <= 0
+        else max(ContractingDecimal(0), 1 - mid_input / amounts[0])
+    )
     detailed = [
-        {**hop, "amount_in": float(amounts[index]), "amount_out": float(amounts[index + 1])}
+        {**hop, "amount_in": amounts[index], "amount_out": amounts[index + 1]}
         for index, hop in enumerate(hops)
     ]
     return {
@@ -418,14 +432,14 @@ async def _quote_path_exact_out(
         "token_in": token_in,
         "token_out": token_out,
         "path": path,
-        "amount_in": float(amounts[0]),
-        "amount_out": float(desired),
-        "amounts": [float(value) for value in amounts],
+        "amount_in": amounts[0],
+        "amount_out": desired,
+        "amounts": amounts,
         "hops": detailed,
         "fee_bps": fee_bps,
-        "mid_price_input": float(mid_input),
-        "price_impact": float(impact),
-        "price_impact_bps": float(impact * 10_000),
+        "mid_price_input": mid_input,
+        "price_impact": impact,
+        "price_impact_bps": impact * 10_000,
         "warnings": [
             "The router has no exact-output entrypoint; this quote is used to build a capped exact-input call."
         ],
@@ -493,7 +507,7 @@ async def _quote(
 async def dex_quote_exact_in(
     token_in: str = "",
     token_out: str = "",
-    amount_in: float = 0,
+    amount_in: str | int = 0,
     path: list[int] | None = None,
     account: str = "",
     max_hops: int = 3,
@@ -516,7 +530,7 @@ async def dex_quote_exact_in(
 async def dex_quote_exact_out(
     token_in: str = "",
     token_out: str = "",
-    amount_out: float = 0,
+    amount_out: str | int = 0,
     path: list[int] | None = None,
     account: str = "",
     max_hops: int = 3,
@@ -543,19 +557,19 @@ async def _fee_flags(tokens: list[str]) -> dict[str, bool]:
     return {token: value is True for token, value in zip(tokens, values, strict=True)}
 
 
-async def _allowance(token: str, account: str, spender: str) -> Decimal:
+async def _allowance(token: str, account: str, spender: str) -> ContractingDecimal:
     if not account:
-        return Decimal(0)
+        return ContractingDecimal(0)
     value = await _state(token, "approvals", account, spender)
     return _decimal(value or 0, field="Allowance")
 
 
-def _approval(token: str, amount: Decimal) -> dict[str, Any]:
+def _approval(token: str, amount: ContractingDecimal) -> dict[str, Any]:
     return {
         "kind": "approval",
         "contract": token,
         "function": "approve",
-        "kwargs": {"amount": float(amount), "to": ROUTER_CONTRACT},
+        "kwargs": {"amount": _wire_amount(amount), "to": ROUTER_CONTRACT},
     }
 
 
@@ -572,7 +586,7 @@ def _plan_base(operation: str, deadline_value: dict[str, Any], deadline_iso: str
 async def dex_plan_swap(
     token_in: str = "",
     token_out: str = "",
-    amount: float = 0,
+    amount: str | int = 0,
     account: str = "",
     recipient: str = "",
     mode: str = "exact_in",
@@ -614,19 +628,20 @@ async def dex_plan_swap(
             return _error("Exact-output intent cannot be guaranteed for fee-on-transfer routes")
 
         if mode == "exact_in":
-            call_amount_in = Decimal(str(quote["amount_in"]))
-            amount_out_min = (
-                Decimal(str(quote["amount_out"])) * Decimal(10_000 - slip) / Decimal(10_000)
+            call_amount_in = ContractingDecimal(str(quote["amount_in"]))
+            multiplier = ContractingDecimal(10_000 - slip) / 10_000
+            amount_out_min = await _normalize_amount(
+                ContractingDecimal(quote["amount_out"]) * multiplier, quote["token_out"]
             )
             operation = "swap_exact_in"
         else:
-            call_amount_in = (
-                Decimal(str(quote["amount_in"])) * Decimal(10_000 + slip) / Decimal(10_000)
+            call_amount_in = ContractingDecimal(quote["amount_in"]) * (
+                ContractingDecimal(10_000 + slip) / 10_000
             )
             call_amount_in = await _normalize_amount(
                 call_amount_in, quote["token_in"], round_up=True
             )
-            amount_out_min = Decimal(str(quote["amount_out"]))
+            amount_out_min = ContractingDecimal(str(quote["amount_out"]))
             operation = "swap_exact_out_intent"
 
         deadline_value, deadline_iso = _deadline(deadline_minutes)
@@ -640,8 +655,8 @@ async def dex_plan_swap(
         else:
             function = "swapExactTokenForToken" if single else "swapExactTokensForTokens"
         kwargs: dict[str, Any] = {
-            "amountIn": float(call_amount_in),
-            "amountOutMin": float(amount_out_min),
+            "amountIn": _wire_amount(call_amount_in),
+            "amountOutMin": _wire_amount(amount_out_min),
             "src": quote["token_in"],
             "to": recipient.strip(),
             "deadline": deadline_value,
@@ -664,11 +679,11 @@ async def dex_plan_swap(
                 "recipient": recipient.strip(),
                 "route": {"path": quote["path"], "tokens": route_tokens, "hops": quote["hops"]},
                 "amounts": {
-                    "requested": float(_decimal(amount, field="Amount", positive=True)),
+                    "requested": _decimal(amount, field="Amount", positive=True),
                     "quoted_input": quote["amount_in"],
                     "quoted_output": quote["amount_out"],
-                    "call_input": float(call_amount_in),
-                    "minimum_output": float(amount_out_min),
+                    "call_input": call_amount_in,
+                    "minimum_output": amount_out_min,
                 },
                 "fee": {"trade_fee_bps": quote["fee_bps"], "signer": account.strip()},
                 "slippage": {"bps": slip},
@@ -694,7 +709,7 @@ async def dex_plan_swap(
             plan["warnings"].append(
                 "Fee-on-transfer output is bounded by amountOutMin but may differ from the nominal quote."
             )
-        return PLAN_REGISTRY.issue(plan)
+        return PLAN_REGISTRY.issue(normalize_for_transport(plan))
     except Exception as exc:
         return _error(f"Unable to plan swap: {exc}")
 
@@ -707,8 +722,8 @@ async def _pair_for_tokens(token_a: str, token_b: str) -> dict[str, Any] | None:
 async def dex_plan_add_liquidity(
     token_a: str = "",
     token_b: str = "",
-    amount_a_desired: float = 0,
-    amount_b_desired: float = 0,
+    amount_a_desired: str | int = 0,
+    amount_b_desired: str | int = 0,
     account: str = "",
     recipient: str = "",
     slippage_bps: int = 100,
@@ -735,13 +750,13 @@ async def dex_plan_add_liquidity(
         if pair and pair["reserve0"] > 0 and pair["reserve1"] > 0:
             if token_a == pair["token0"]:
                 reserve_a, reserve_b = (
-                    Decimal(str(pair["reserve0"])),
-                    Decimal(str(pair["reserve1"])),
+                    ContractingDecimal(str(pair["reserve0"])),
+                    ContractingDecimal(str(pair["reserve1"])),
                 )
             else:
                 reserve_a, reserve_b = (
-                    Decimal(str(pair["reserve1"])),
-                    Decimal(str(pair["reserve0"])),
+                    ContractingDecimal(str(pair["reserve1"])),
+                    ContractingDecimal(str(pair["reserve0"])),
                 )
             optimal_b = desired_a * reserve_b / reserve_a
             if optimal_b <= desired_b:
@@ -750,8 +765,8 @@ async def dex_plan_add_liquidity(
                 expected_a = await _normalize_amount(desired_b * reserve_a / reserve_b, token_a)
         else:
             warnings.append("This call creates the registered pair and seeds its initial price.")
-        min_a = expected_a * Decimal(10_000 - slip) / Decimal(10_000)
-        min_b = expected_b * Decimal(10_000 - slip) / Decimal(10_000)
+        min_a = expected_a * ContractingDecimal(10_000 - slip) / ContractingDecimal(10_000)
+        min_b = expected_b * ContractingDecimal(10_000 - slip) / ContractingDecimal(10_000)
         deadline_value, deadline_iso = _deadline(deadline_minutes)
         approvals: list[dict[str, Any]] = []
         for token, desired in ((token_a, desired_a), (token_b, desired_b)):
@@ -764,10 +779,10 @@ async def dex_plan_add_liquidity(
             "kwargs": {
                 "tokenA": token_a,
                 "tokenB": token_b,
-                "amountADesired": float(desired_a),
-                "amountBDesired": float(desired_b),
-                "amountAMin": float(min_a),
-                "amountBMin": float(min_b),
+                "amountADesired": _wire_amount(desired_a),
+                "amountBDesired": _wire_amount(desired_b),
+                "amountAMin": _wire_amount(min_a),
+                "amountBMin": _wire_amount(min_b),
                 "to": recipient.strip(),
                 "deadline": deadline_value,
                 "lpToken": str(lp_token),
@@ -786,12 +801,12 @@ async def dex_plan_add_liquidity(
                 "pair": pair,
                 "lp_token": str(lp_token),
                 "amounts": {
-                    "desired_a": float(desired_a),
-                    "desired_b": float(desired_b),
-                    "expected_a": float(expected_a),
-                    "expected_b": float(expected_b),
-                    "minimum_a": float(min_a),
-                    "minimum_b": float(min_b),
+                    "desired_a": desired_a,
+                    "desired_b": desired_b,
+                    "expected_a": expected_a,
+                    "expected_b": expected_b,
+                    "minimum_a": min_a,
+                    "minimum_b": min_b,
                 },
                 "slippage": {"bps": slip},
                 "fee_on_transfer": {"flags": flags},
@@ -802,7 +817,7 @@ async def dex_plan_add_liquidity(
                 "warnings": warnings,
             }
         )
-        return PLAN_REGISTRY.issue(plan)
+        return PLAN_REGISTRY.issue(normalize_for_transport(plan))
     except Exception as exc:
         return _error(f"Unable to plan add liquidity: {exc}")
 
@@ -810,7 +825,7 @@ async def dex_plan_add_liquidity(
 async def dex_plan_remove_liquidity(
     token_a: str = "",
     token_b: str = "",
-    liquidity: float = 0,
+    liquidity: str | int = 0,
     account: str = "",
     recipient: str = "",
     slippage_bps: int = 100,
@@ -828,17 +843,23 @@ async def dex_plan_remove_liquidity(
         pair = await _pair_for_tokens(token_a, token_b)
         if pair is None or not pair["lp_token"]:
             return _error("Pair or bound LP token does not exist")
-        total_supply = Decimal(str(pair["total_supply"]))
+        total_supply = ContractingDecimal(str(pair["total_supply"]))
         if total_supply <= 0 or liquidity_value > total_supply:
             return _error("Liquidity exceeds the pair total supply")
         if token_a == pair["token0"]:
-            reserve_a, reserve_b = Decimal(str(pair["reserve0"])), Decimal(str(pair["reserve1"]))
+            reserve_a, reserve_b = (
+                ContractingDecimal(str(pair["reserve0"])),
+                ContractingDecimal(str(pair["reserve1"])),
+            )
         else:
-            reserve_a, reserve_b = Decimal(str(pair["reserve1"])), Decimal(str(pair["reserve0"]))
+            reserve_a, reserve_b = (
+                ContractingDecimal(str(pair["reserve1"])),
+                ContractingDecimal(str(pair["reserve0"])),
+            )
         expected_a = liquidity_value * reserve_a / total_supply
         expected_b = liquidity_value * reserve_b / total_supply
-        min_a = expected_a * Decimal(10_000 - slip) / Decimal(10_000)
-        min_b = expected_b * Decimal(10_000 - slip) / Decimal(10_000)
+        min_a = expected_a * ContractingDecimal(10_000 - slip) / ContractingDecimal(10_000)
+        min_b = expected_b * ContractingDecimal(10_000 - slip) / ContractingDecimal(10_000)
         deadline_value, deadline_iso = _deadline(deadline_minutes)
         allowance = await _allowance(pair["lp_token"], account.strip(), ROUTER_CONTRACT)
         approvals = (
@@ -851,9 +872,9 @@ async def dex_plan_remove_liquidity(
             "kwargs": {
                 "tokenA": token_a,
                 "tokenB": token_b,
-                "liquidity": float(liquidity_value),
-                "amountAMin": float(min_a),
-                "amountBMin": float(min_b),
+                "liquidity": _wire_amount(liquidity_value),
+                "amountAMin": _wire_amount(min_a),
+                "amountBMin": _wire_amount(min_b),
                 "to": recipient.strip(),
                 "deadline": deadline_value,
             },
@@ -866,11 +887,11 @@ async def dex_plan_remove_liquidity(
                 "pair": pair,
                 "lp_token": pair["lp_token"],
                 "amounts": {
-                    "liquidity": float(liquidity_value),
-                    "expected_a": float(expected_a),
-                    "expected_b": float(expected_b),
-                    "minimum_a": float(min_a),
-                    "minimum_b": float(min_b),
+                    "liquidity": liquidity_value,
+                    "expected_a": expected_a,
+                    "expected_b": expected_b,
+                    "minimum_a": min_a,
+                    "minimum_b": min_b,
                 },
                 "slippage": {"bps": slip},
                 "fee_on_transfer": {"flags": await _fee_flags([token_a, token_b])},
@@ -883,7 +904,7 @@ async def dex_plan_remove_liquidity(
                 ],
             }
         )
-        return PLAN_REGISTRY.issue(plan)
+        return PLAN_REGISTRY.issue(normalize_for_transport(plan))
     except Exception as exc:
         return _error(f"Unable to plan remove liquidity: {exc}")
 
@@ -946,17 +967,6 @@ def _validate_plan(plan: dict[str, Any], allowed_operations: set[str]) -> list[d
     return calls
 
 
-def _contract_kwargs(value: Any) -> Any:
-    """Restore exact decimal values after a plan crosses a JSON transport."""
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, dict):
-        return {key: _contract_kwargs(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_contract_kwargs(item) for item in value]
-    return value
-
-
 async def _submit_plan(
     private_key: str,
     plan_id: str,
@@ -979,9 +989,11 @@ async def _submit_plan(
             return _error("Plan account does not match the signing wallet")
         simulations: list[Any] = []
         transactions: list[Any] = []
-        async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(
+            NODE_URL, wallet=wallet, chain_id=CHAIN_ID, config=CLIENT_CONFIG
+        ) as xian:
             for call in calls:
-                kwargs = _contract_kwargs(call["kwargs"])
+                kwargs = call["kwargs"]
                 if simulate:
                     simulation = normalize_for_transport(
                         await simulate_tx_async(
@@ -992,6 +1004,7 @@ async def _submit_plan(
                                 "kwargs": kwargs,
                                 "sender": wallet.public_key,
                             },
+                            vm_profile=CLIENT_CONFIG.vm_profile,
                         )
                     )
                     simulations.append(simulation)
@@ -1089,7 +1102,9 @@ async def dex_wait_live_event(
         if known is not None and event not in known:
             return _error(f"{event} is not declared by {contract}")
 
-        timeout = _decimal(timeout_seconds, field="Timeout seconds", positive=True)
+        timeout = Decimal(str(timeout_seconds))
+        if not timeout.is_finite() or timeout <= 0:
+            raise ValueError("Timeout seconds must be positive")
         if timeout > 120:
             return _error("Timeout seconds must not exceed 120")
         max_events = _positive_int(max_events, field="Max events")
@@ -1102,7 +1117,7 @@ async def dex_wait_live_event(
         items: list[dict[str, Any]] = []
 
         async def collect() -> None:
-            async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+            async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
                 async for live_event in xian.watch_live_events(contract, event):
                     item = normalize_for_transport(live_event)
                     if not isinstance(item, dict):
@@ -1183,7 +1198,7 @@ async def dex_list_events(
             sources = [
                 (name, event_name) for name, events in DEX_EVENTS.items() for event_name in events
             ]
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             batches = await asyncio.gather(
                 *(
                     xian.list_events(
@@ -1271,7 +1286,7 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
             "properties": {
                 "token_in": {"type": "string"},
                 "token_out": {"type": "string"},
-                "amount_in": {"type": "number", "exclusiveMinimum": 0},
+                "amount_in": AMOUNT_SCHEMA,
                 "path": _PATH_SCHEMA,
                 "account": {
                     "type": "string",
@@ -1291,7 +1306,7 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
             "properties": {
                 "token_in": {"type": "string"},
                 "token_out": {"type": "string"},
-                "amount_out": {"type": "number", "exclusiveMinimum": 0},
+                "amount_out": AMOUNT_SCHEMA,
                 "path": _PATH_SCHEMA,
                 "account": {
                     "type": "string",
@@ -1311,7 +1326,7 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
             "properties": {
                 "token_in": {"type": "string"},
                 "token_out": {"type": "string"},
-                "amount": {"type": "number", "exclusiveMinimum": 0},
+                "amount": AMOUNT_SCHEMA,
                 "account": {"type": "string"},
                 "recipient": {"type": "string"},
                 "mode": {
@@ -1356,8 +1371,8 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
             "properties": {
                 "token_a": {"type": "string"},
                 "token_b": {"type": "string"},
-                "amount_a_desired": {"type": "number", "exclusiveMinimum": 0},
-                "amount_b_desired": {"type": "number", "exclusiveMinimum": 0},
+                "amount_a_desired": AMOUNT_SCHEMA,
+                "amount_b_desired": AMOUNT_SCHEMA,
                 "account": {"type": "string"},
                 "recipient": {"type": "string"},
                 "slippage_bps": {"type": "integer", "default": 100},
@@ -1397,7 +1412,7 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
             "properties": {
                 "token_a": {"type": "string"},
                 "token_b": {"type": "string"},
-                "liquidity": {"type": "number", "exclusiveMinimum": 0},
+                "liquidity": AMOUNT_SCHEMA,
                 "account": {"type": "string"},
                 "recipient": {"type": "string"},
                 "slippage_bps": {"type": "integer", "default": 100},

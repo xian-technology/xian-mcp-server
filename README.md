@@ -20,6 +20,14 @@ See [CLAUDE.md](CLAUDE.md) for the full AI-facing tool reference and
 chain-specific concepts (chi, state-key format, address vs. public key,
 DEX workflow, error patterns).
 
+Token and DEX tools accept a decimal string or an integer for an amount.
+Use `"1.000000000000000000000000000001"` to retain all 30 fractional places.
+For generic transaction and simulation arguments use
+`{"amount":{"__fixed__":"1.25"}}`. An ordinary string in a generic argument
+stays a string. Returned decimal values use plain strings and integers outside
+the JSON safe integer range use the `__big_int__` wrapper. DEX plans expose
+the exact typed calls passed to simulation and signing.
+
 ## Request Shape
 
 ```mermaid
@@ -45,7 +53,7 @@ cd xian-mcp-server
 docker build --target pypi -t xian-mcp-server .
 ```
 
-This standalone build installs published Python dependencies. To build against
+This standalone build uses the dependency revisions in `uv.lock`. To build against
 sibling SDK checkouts instead, use `docker compose build` or:
 
 ```bash
@@ -59,14 +67,13 @@ docker buildx build --target local --load -t xian-mcp-server \
 Smoke-test the MCP handshake:
 
 ```bash
-docker run --rm -i xian-mcp-server < test_requests.jsonl
+docker run --rm xian-mcp-server python scripts/smoke_stdio.py
 # or, without Docker:
-uv run xian-mcp-server < test_requests.jsonl
-uv run python xian_server.py < test_requests.jsonl
+uv run python scripts/smoke_stdio.py
 ```
 
-You should see two JSON responses: an `initialize` response (id 1) and a
-`tools/list` response (id 2).
+The smoke test completes the handshake, verifies the simulation tool is available,
+and prints the number of advertised tools.
 
 ### Use with Claude Desktop
 
@@ -250,7 +257,7 @@ file (template in `.env.example`) when using `docker-compose`.
 - `http_server.py` — reusable HTTP REST wrapper around the same tool specs.
 - `serialization.py` — JSON-RPC and tool-result serialization helpers.
 - `mcp.json`, `custom_catalog.yaml` — example client configurations.
-- `test_requests.jsonl` — canonical MCP handshake smoke input.
+- `test_requests.jsonl` — sample MCP handshake messages.
 - `tests/` — `unit/` (deterministic) and `integration/` (live-network)
   coverage; shared fixtures in `tests/shared.py`.
 - `Dockerfile`, `docker-compose.yml` — container build and runtime
@@ -260,14 +267,14 @@ file (template in `.env.example`) when using `docker-compose`.
 
 ## Validation
 
-The standard setup uses locked published dependencies and works without sibling
-checkouts. Mnemonic tools require `xian-tech-py` 0.5.2 or newer and use its
+The standard setup uses locked dependencies and works without sibling
+checkouts. Mnemonic tools require `xian-tech-py` 0.5.3 or newer and use its
 `Wallet.from_mnemonic` API for canonical indexed Xian accounts.
 
 ```bash
 uv sync --frozen --extra dev
 uv run pytest -q                       # deterministic unit tests
-docker run --rm -i xian-mcp-server < test_requests.jsonl   # MCP handshake smoke test
+docker run --rm xian-mcp-server python scripts/smoke_stdio.py   # MCP handshake smoke test
 ```
 
 To test an unreleased sibling SDK explicitly after the standard setup:
@@ -278,11 +285,11 @@ uv pip install --no-sources \
   -e ../xian-contracting/packages/xian-accounts \
   -e "../xian-py[eth,hd]"
 uv run --no-sync pytest -q
-uv run --no-sync xian-mcp-server < test_requests.jsonl
+uv run --no-sync python scripts/smoke_stdio.py
 ```
 
 Use `--no-sync` while testing those overrides. Run `uv sync --frozen --extra dev`
-to return to the published dependency versions. Docker Compose and the `local`
+to return to the locked dependency versions. Docker Compose and the `local`
 Docker target retain their explicit sibling build contexts.
 
 Live-network integration tests are opt-in and submit small transactions against
@@ -310,7 +317,7 @@ Live integration tests run on a daily schedule and via manual
 
 - [CLAUDE.md](CLAUDE.md) — AI-assistant integration guide, full tool
   reference, security guidelines, common workflows
-- [test_requests.jsonl](test_requests.jsonl) — canonical MCP handshake
+- [test_requests.jsonl](test_requests.jsonl) — sample MCP handshake messages
   smoke input
 - `xian-tech-py` — the underlying Python SDK
 

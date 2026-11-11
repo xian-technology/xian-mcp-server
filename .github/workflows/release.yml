@@ -43,7 +43,7 @@ jobs:
           uv sync --frozen --extra dev
           uv run --extra dev ruff check .
           uv run --extra dev pytest -q
-          uv run xian-mcp-server < test_requests.jsonl
+          uv run python scripts/smoke_stdio.py
           uv build
 
       - name: Check built package

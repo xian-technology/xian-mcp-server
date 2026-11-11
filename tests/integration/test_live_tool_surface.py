@@ -296,7 +296,7 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
             await dex_quote_exact_in(
                 dex_base,
                 dex_token,
-                0.001,
+                "0.001",
                 account=address,
             ),
             tool="dex_quote_exact_in",
@@ -316,7 +316,7 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
             await dex_plan_swap(
                 dex_base,
                 dex_token,
-                0.001,
+                "0.001",
                 address,
                 address,
             ),
@@ -358,8 +358,8 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
                 private_key=private_key,
                 buy_token=dex_token,
                 sell_token=dex_base,
-                amount=0.01,
-                slippage=1.0,
+                amount="0.01",
+                slippage=1,
             ),
             tool="buy_on_dex",
         )
@@ -373,8 +373,8 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
                 private_key=private_key,
                 sell_token=dex_token,
                 buy_token=dex_base,
-                amount=0.001,
-                slippage=1.0,
+                amount="0.001",
+                slippage=1,
             ),
             tool="sell_on_dex",
         )
@@ -391,8 +391,8 @@ async def test_live_mcp_tool_surface_against_dev_node() -> None:
                 await dex_plan_add_liquidity(
                     dex_base,
                     dex_token,
-                    0.001,
-                    0.001,
+                    "0.001",
+                    "0.001",
                     address,
                     address,
                 ),

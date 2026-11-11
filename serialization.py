@@ -6,9 +6,20 @@ from dataclasses import asdict, is_dataclass
 from decimal import Decimal
 from typing import Any
 
+from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 
-def _is_contracting_decimal(value: Any) -> bool:
-    return value.__class__.__name__ == "ContractingDecimal"
+# Decimal arguments cross JSON as text. Integers are also accepted for whole amounts.
+AMOUNT_SCHEMA = {"type": ["string", "integer"]}
+
+
+def exact_amount(value: Any, *, field: str, positive: bool = False) -> Decimal:
+    try:
+        amount = Decimal(canonical_fixed(value))
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        raise ValueError(f"{field} must be an exact decimal string or integer: {exc}") from exc
+    if positive and amount <= 0:
+        raise ValueError(f"{field} must be positive")
+    return amount
 
 
 def _include_raw_payloads() -> bool:
@@ -25,11 +36,14 @@ def normalize_for_transport(
     if include_raw is None:
         include_raw = _include_raw_payloads()
 
+    if isinstance(value, int) and abs(value) > (1 << 53) - 1:
+        return {"__big_int__": str(value)}
+
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
-    if isinstance(value, Decimal) or _is_contracting_decimal(value):
-        return float(value)
+    if isinstance(value, (Decimal, ContractingDecimal)):
+        return canonical_fixed(value)
 
     if is_dataclass(value):
         return normalize_for_transport(asdict(value), include_raw=include_raw)
@@ -50,9 +64,7 @@ def normalize_for_transport(
         }
 
     if isinstance(value, (list, tuple, set)):
-        return [
-            normalize_for_transport(item, include_raw=include_raw) for item in value
-        ]
+        return [normalize_for_transport(item, include_raw=include_raw) for item in value]
 
     value_dict = getattr(value, "__dict__", None)
     if isinstance(value_dict, dict):

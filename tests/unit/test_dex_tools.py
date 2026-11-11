@@ -117,8 +117,8 @@ async def test_swap_plan_contains_exact_approval_and_supporting_call(monkeypatch
         slippage_bps=100,
     )
     assert plan["operation"] == "swap_exact_in"
-    assert plan["amounts"]["minimum_output"] == pytest.approx(8.91)
-    assert plan["approvals"][0]["kwargs"] == {"amount": 10.0, "to": "con_dex"}
+    assert plan["amounts"]["minimum_output"] == "8.91"
+    assert plan["approvals"][0]["kwargs"] == {"amount": {"__fixed__": "10"}, "to": "con_dex"}
     assert plan["call"]["function"] == ("swapExactTokenForTokenSupportingFeeOnTransferTokens")
     assert plan["call"]["kwargs"]["deadline"] == plan["deadline"]["absolute"]
     assert plan["plan_id"]
@@ -164,7 +164,7 @@ async def test_liquidity_plans_match_router_and_lp_semantics(monkeypatch):
     )
     assert [call["contract"] for call in add["approvals"]] == ["token_a", "token_b"]
     assert add["call"]["function"] == "addLiquidity"
-    assert add["amounts"]["expected_b"] == 10.0
+    assert add["amounts"]["expected_b"] == "10"
     assert add["call"]["kwargs"]["lpToken"] == "lp_ab"
 
     remove = await dex_tools.dex_plan_remove_liquidity(
@@ -172,8 +172,8 @@ async def test_liquidity_plans_match_router_and_lp_semantics(monkeypatch):
     )
     assert remove["approvals"][0]["contract"] == "lp_ab"
     assert remove["call"]["function"] == "removeLiquidity"
-    assert remove["amounts"]["expected_a"] == 100.0
-    assert remove["amounts"]["expected_b"] == 100.0
+    assert remove["amounts"]["expected_a"] == "100"
+    assert remove["amounts"]["expected_b"] == "100"
 
 
 @pytest.mark.asyncio
@@ -196,7 +196,8 @@ async def test_submit_swap_simulates_and_submits_whitelisted_plan(monkeypatch):
             sent.append((contract, function, kwargs))
             return {"tx_hash": f"tx-{len(sent)}"}
 
-    async def simulate(node_url, payload):
+    async def simulate(node_url, payload, *, vm_profile):
+        assert vm_profile == "xian_vm_v2"
         return {"success": True, "function": payload["function"]}
 
     monkeypatch.setattr(dex_tools, "XianAsync", FakeXian)
@@ -204,7 +205,7 @@ async def test_submit_swap_simulates_and_submits_whitelisted_plan(monkeypatch):
     account = Wallet(TEST_PRIVATE_KEY).public_key
     assert account == TEST_ADDRESS
     plan = {
-        "plan_version": 1,
+        "plan_version": 2,
         "operation": "swap_exact_in",
         "network": {"chain_id": dex_tools.CHAIN_ID},
         "account": account,
@@ -218,14 +219,14 @@ async def test_submit_swap_simulates_and_submits_whitelisted_plan(monkeypatch):
                 "kind": "approval",
                 "contract": "token_a",
                 "function": "approve",
-                "kwargs": {"amount": 10.0, "to": "con_dex"},
+                "kwargs": {"amount": {"__fixed__": "10"}, "to": "con_dex"},
             },
             {
                 "kind": "action",
                 "contract": "con_dex",
                 "function": "swapExactTokenForToken",
                 "kwargs": {
-                    "amountIn": 10.0,
+                    "amountIn": {"__fixed__": "10"},
                     "to": account,
                     "deadline": {"__time__": [2099, 1, 1, 0, 0, 0, 0]},
                 },
@@ -240,7 +241,7 @@ async def test_submit_swap_simulates_and_submits_whitelisted_plan(monkeypatch):
     assert result["plan_status"] == "consumed"
     assert len(result["simulations"]) == 2
     assert [item[1] for item in sent] == ["approve", "swapExactTokenForToken"]
-    assert sent[-1][2]["amountIn"] == dex_tools.Decimal("10.0")
+    assert sent[-1][2]["amountIn"] == {"__fixed__": "10"}
     assert result["final_transaction"]["tx_hash"] == "tx-2"
 
     replay = await dex_tools.dex_submit_swap(TEST_PRIVATE_KEY, issued["plan_id"])
@@ -268,7 +269,8 @@ async def test_plan_id_is_single_use_across_concurrent_submitters(monkeypatch):
             await asyncio.sleep(0)
             return {"tx_hash": "only-once"}
 
-    async def simulate(node_url, payload):
+    async def simulate(node_url, payload, *, vm_profile):
+        assert vm_profile == "xian_vm_v2"
         return {"status": 0}
 
     monkeypatch.setattr(dex_tools, "XianAsync", FakeXian)
@@ -304,7 +306,8 @@ async def test_partial_multi_call_failure_invalidates_plan(monkeypatch):
                 raise RuntimeError("router unavailable")
             return {"tx_hash": "approval-committed"}
 
-    async def simulate(node_url, payload):
+    async def simulate(node_url, payload, *, vm_profile):
+        assert vm_profile == "xian_vm_v2"
         return {"status": 0}
 
     monkeypatch.setattr(dex_tools, "XianAsync", FakeXian)
@@ -330,7 +333,7 @@ def _server_swap_plan(*, with_approval: bool = False) -> dict[str, Any]:
                 "kind": "approval",
                 "contract": "token_a",
                 "function": "approve",
-                "kwargs": {"amount": 10.0, "to": "con_dex"},
+                "kwargs": {"amount": {"__fixed__": "10"}, "to": "con_dex"},
             }
         )
     calls.append(
@@ -338,11 +341,11 @@ def _server_swap_plan(*, with_approval: bool = False) -> dict[str, Any]:
             "kind": "action",
             "contract": "con_dex",
             "function": "swapExactTokenForToken",
-            "kwargs": {"amountIn": 10.0, "to": TEST_ADDRESS, "deadline": deadline},
+            "kwargs": {"amountIn": {"__fixed__": "10"}, "to": TEST_ADDRESS, "deadline": deadline},
         }
     )
     return {
-        "plan_version": 1,
+        "plan_version": 2,
         "operation": "swap_exact_in",
         "network": {"chain_id": dex_tools.CHAIN_ID},
         "account": TEST_ADDRESS,
@@ -592,7 +595,8 @@ def test_http_plan_id_round_trip_and_replay_rejection(monkeypatch):
         async def send_tx(self, contract, function, kwargs, *, mode, wait_for_tx):
             return {"tx_hash": "http-plan-id"}
 
-    async def simulate(node_url, payload):
+    async def simulate(node_url, payload, *, vm_profile):
+        assert vm_profile == "xian_vm_v2"
         return {"status": 0}
 
     monkeypatch.setattr(dex_tools, "_quote", quote)
@@ -631,3 +635,24 @@ def test_http_plan_id_round_trip_and_replay_rejection(monkeypatch):
         json={"private_key": TEST_PRIVATE_KEY, "plan_id": plan["plan_id"]},
     )
     assert replay.json()["result"]["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_plan_preserves_amount_beyond_binary64_and_python_decimal_context(
+    quote_chain, monkeypatch
+):
+    async def flags(tokens):
+        return {token: False for token in tokens}
+
+    async def allowance(*_args):
+        return 0
+
+    monkeypatch.setattr(dex_tools, "_fee_flags", flags)
+    monkeypatch.setattr(dex_tools, "_allowance", allowance)
+    quantity = "9007199254740993.000000000000000000000000000001"
+    plan = await dex_tools.dex_plan_swap("token_a", "token_b", quantity, TEST_ADDRESS, TEST_ADDRESS)
+    expected = {"__fixed__": quantity}
+    assert plan["calls"][0]["kwargs"]["amount"] == expected
+    assert plan["calls"][1]["kwargs"]["amountIn"] == expected
+    assert plan["amounts"]["requested"] == quantity
+    assert plan["amounts"]["minimum_output"] == plan["call"]["kwargs"]["amountOutMin"]["__fixed__"]

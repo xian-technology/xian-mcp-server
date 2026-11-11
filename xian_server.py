@@ -18,7 +18,7 @@ import logging
 import os
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Context, Decimal
 from typing import Any, Awaitable, Callable, Dict, List
 
 import aiohttp
@@ -29,16 +29,16 @@ from xian_py import Wallet, XianAsync
 from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
 from xian_py.wallet import HDWallet, verify_msg
+from xian_runtime_types.decimal import ContractingDecimal
 
 from dex_tools import DEX_TOOL_SPECS
 from logging_setup import configure_logging, exception_context, request_context
-from serialization import normalize_for_transport
+from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
+from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL
 
 logger = logging.getLogger("xian-server")
 
 # Configuration
-CHAIN_ID = os.environ.get("XIAN_CHAIN_ID", "xian-local-1")
-NODE_URL = os.environ.get("XIAN_NODE_URL", "http://127.0.0.1:26657")
 GRAPHQL = os.environ.get("XIAN_GRAPHQL", "http://127.0.0.1:5000/graphql")
 UNSAFE_WALLET_TOOLS_ENV = "XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS"
 
@@ -133,7 +133,7 @@ def _repair_indexed_payload(value: Any, *, include_raw: bool) -> Any:
 
 
 async def _call_indexed_read(method_name: str, /, *args: Any, **kwargs: Any) -> Any:
-    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
         method = getattr(xian, method_name)
         result = await method(*args, **kwargs)
         include_raw = _include_raw_payloads()
@@ -524,6 +524,8 @@ async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
     """
     data = await fetch_graphql(query=query, variables={"key": recipient_key})
     nodes = [node for node in data.get("allRewards", {}).get("nodes", []) if isinstance(node, dict)]
+    # At most 1,000 rewards of 61 integer digits and 30 decimal places.
+    reward_context = Context(prec=94)
     total = Decimal("0")
     tx_hashes: set[str] = set()
     contracts: set[str] = set()
@@ -532,7 +534,7 @@ async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
 
     for node in nodes:
         try:
-            total += Decimal(str(node.get("value", "0")))
+            total = reward_context.add(total, exact_amount(node.get("value", "0"), field="value"))
         except Exception:
             pass
         tx_hash = node.get("txHash")
@@ -553,7 +555,7 @@ async def _graphql_get_developer_rewards(recipient_key: str) -> dict[str, Any]:
 
     return {
         "recipient_key": recipient_key,
-        "total_rewards": str(total),
+        "total_rewards": format(total, "f"),
         "reward_count": len(nodes),
         "tx_count": len(tx_hashes),
         "contract_count": len(contracts),
@@ -648,7 +650,7 @@ async def get_balance(address: str = "", token_contract: str = "currency") -> di
     logger.debug("Getting balance for %s", address)
 
     try:
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             balance = await xian.get_balance(address.strip(), contract=token_contract.strip())
             balance = 0 if balance is None else balance
 
@@ -688,7 +690,7 @@ async def get_token_balances(
     logger.debug("Getting token balances for %s", address)
 
     try:
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             balances = await xian.get_token_balances(
                 address.strip(),
                 limit=limit,
@@ -1209,7 +1211,9 @@ async def send_transaction(
 
     try:
         wallet = Wallet(private_key.strip())
-        async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(
+            NODE_URL, wallet=wallet, chain_id=CHAIN_ID, config=CLIENT_CONFIG
+        ) as xian:
             result = await xian.send_tx(contract, function, kwargs)
             return normalize_for_transport(result)
     except Exception as ex:
@@ -1221,7 +1225,7 @@ async def send_tokens(
     private_key: str = "",
     to_address: str = "",
     token_contract: str = "currency",
-    amount: float = 0,
+    amount: str | int = 0,
 ) -> dict[str, str] | str:
     """Send tokens from a specific token contract to another address."""
     if not private_key.strip():
@@ -1230,14 +1234,18 @@ async def send_tokens(
         return "❌ Error: Contract name is required"
     if not to_address.strip():
         return "❌ Error: Recipient address is required"
-    if amount <= 0:
-        return "❌ Error: Amount is required"
+    try:
+        amount = exact_amount(amount, field="Amount", positive=True)
+    except ValueError as exc:
+        return f"❌ Error: {exc}"
 
     logger.debug("Sending %s %s tokens to %s", amount, token_contract, to_address)
 
     try:
         wallet = Wallet(private_key.strip())
-        async with XianAsync(NODE_URL, wallet=wallet, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(
+            NODE_URL, wallet=wallet, chain_id=CHAIN_ID, config=CLIENT_CONFIG
+        ) as xian:
             result = await xian.send(amount, to_address, token_contract)
             return normalize_for_transport(result)
     except Exception as ex:
@@ -1251,7 +1259,7 @@ async def get_transaction(tx_hash: str = "") -> dict[str, Any] | str:
         return "❌ Error: Transaction hash is required"
 
     try:
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             tx = await xian.get_tx(tx_hash)
             return normalize_for_transport(tx)
     except Exception as ex:
@@ -1272,7 +1280,7 @@ async def get_state(state_key: str) -> dict[str, Any] | str:
     keys = tuple(parts[1:]) if len(parts) > 1 else None
 
     try:
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             if keys:
                 state = await xian.get_state(contract, variable, *keys)
             else:
@@ -1295,7 +1303,7 @@ async def get_contract_source(contract_name: str = "") -> dict[str, str] | str:
     logger.debug("Getting contract source %s", contract_name)
 
     try:
-        async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+        async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             source = await xian.get_contract_source(contract_name.strip())
             if source is None:
                 source = await _graphql_get_contract_source(contract_name.strip())
@@ -1334,7 +1342,9 @@ async def simulate_transaction(
             "sender": address,
         }
 
-        return normalize_for_transport(await simulate_tx_async(NODE_URL, payload))
+        return normalize_for_transport(
+            await simulate_tx_async(NODE_URL, payload, vm_profile=CLIENT_CONFIG.vm_profile)
+        )
     except Exception as ex:
         logger.error("Error simulating transaction", extra=exception_context(ex))
         return f"❌ Error simulating transaction: {str(ex)}"
@@ -1564,16 +1574,12 @@ def _deadline_value(*, minutes_from_now: float) -> dict[str, list[int]]:
     }
 
 
-def _decimal_payload_value(value: int | float | str | Decimal) -> Decimal:
-    return Decimal(str(value))
-
-
 async def buy_on_dex(
     private_key: str = "",
     buy_token: str = "",
     sell_token: str = "currency",
-    amount: float = 0,
-    slippage: float = 1.0,
+    amount: str | int = 0,
+    slippage: str | int = 1,
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
     """Buy a desired output amount of tokens on the DEX."""
@@ -1583,14 +1589,16 @@ async def buy_on_dex(
         return "❌ Error: Buy token contract is required"
     if not sell_token.strip():
         return "❌ Error: Sell token contract is required"
-    if amount <= 0:
-        return "❌ Error: Amount must be positive"
 
     logger.debug("Buying %s %s with %s", amount, buy_token, sell_token)
 
     try:
-        amount_value = _decimal_payload_value(amount)
-        slippage_value = _decimal_payload_value(slippage)
+        amount_value = exact_amount(amount, field="Amount", positive=True)
+        slippage_value = exact_amount(slippage, field="Slippage")
+    except ValueError as exc:
+        return f"❌ Error: {exc}"
+
+    try:
         return await send_transaction(
             private_key=private_key,
             contract="con_dex_helper",
@@ -1612,8 +1620,8 @@ async def sell_on_dex(
     private_key: str = "",
     sell_token: str = "",
     buy_token: str = "currency",
-    amount: float = 0,
-    slippage: float = 1.0,
+    amount: str | int = 0,
+    slippage: str | int = 1,
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
     """Sell tokens on the DEX."""
@@ -1623,16 +1631,16 @@ async def sell_on_dex(
         return "❌ Error: Sell token contract is required"
     if not buy_token.strip():
         return "❌ Error: Buy token contract is required"
-    if amount <= 0:
-        return "❌ Error: Amount must be positive"
 
     logger.debug("Selling %s %s for %s", amount, sell_token, buy_token)
 
     try:
-        amount_value = _decimal_payload_value(amount)
-        if amount_value != amount_value.quantize(Decimal("0.00000001")):
-            amount_value *= Decimal("0.9999")
-        slippage_value = _decimal_payload_value(slippage)
+        amount_value = exact_amount(amount, field="Amount", positive=True)
+        slippage_value = exact_amount(slippage, field="Slippage")
+    except ValueError as exc:
+        return f"❌ Error: {exc}"
+
+    try:
         return await send_transaction(
             private_key=private_key,
             contract="con_dex_helper",
@@ -1685,8 +1693,13 @@ async def get_dex_price(
         if isinstance(reserve1, str):
             return reserve1
 
-        r0 = reserve0["state_value"]
-        r1 = reserve1["state_value"]
+        def as_reserve(result: dict) -> ContractingDecimal:
+            value = result["state_value"]
+            if isinstance(value, dict) and set(value) == {"__big_int__"}:
+                value = value["__big_int__"]
+            return ContractingDecimal(value)
+
+        r0, r1 = as_reserve(reserve0), as_reserve(reserve1)
 
         if token_a == token:
             price = r1 / r0 if r0 > 0 else 0
@@ -1758,7 +1771,7 @@ async def _bds_get_tokens(*, page_size: int = 1000) -> list[dict[str, str]]:
     tokens: list[dict[str, str]] = []
     offset = 0
 
-    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
         while True:
             page = await _bds_get_token_contract_page(
                 xian,
@@ -1795,7 +1808,7 @@ async def _bds_get_token_data(contract: str) -> dict[str, Any]:
     ]
 
     nodes: list[dict[str, Any]] = []
-    async with XianAsync(NODE_URL, chain_id=CHAIN_ID) as xian:
+    async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
         for state_key in state_keys:
             state_contract, _, rest = state_key.partition(".")
             variable, _, state_subkey = rest.partition(":")
@@ -2356,7 +2369,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
                 },
                 "kwargs": {
                     "type": "object",
-                    "description": "Function arguments as key-value pairs",
+                    "description": 'Function arguments. Encode decimals as {"__fixed__":"1.25"} and large integers as {"__big_int__":"9007199254740993"}.',
                     "default": {},
                 },
             },
@@ -2381,7 +2394,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
                     "description": "Token contract name (default: 'currency')",
                     "default": "currency",
                 },
-                "amount": {"type": "number", "description": "Amount of tokens to send"},
+                "amount": {
+                    **AMOUNT_SCHEMA,
+                    "description": "Exact token amount as a decimal string or integer",
+                },
             },
             "required": ["private_key", "to_address", "amount"],
         },
@@ -2412,7 +2428,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
                 "function": {"type": "string", "description": "Function name"},
                 "kwargs": {
                     "type": "object",
-                    "description": "Function arguments",
+                    "description": 'Function arguments. Encode decimals as {"__fixed__":"1.25"} and large integers as {"__big_int__":"9007199254740993"}.',
                     "default": {},
                 },
             },
@@ -2497,13 +2513,13 @@ TOOL_SPECS: List[dict[str, Any]] = [
                     "default": "currency",
                 },
                 "amount": {
-                    "type": "number",
+                    **AMOUNT_SCHEMA,
                     "description": "Desired amount of buy_token to receive (output amount)",
                 },
                 "slippage": {
-                    "type": "number",
+                    **AMOUNT_SCHEMA,
                     "description": "Max slippage percentage",
-                    "default": 1.0,
+                    "default": 1,
                 },
                 "deadline_min": {
                     "type": "number",
@@ -2536,13 +2552,13 @@ TOOL_SPECS: List[dict[str, Any]] = [
                     "default": "currency",
                 },
                 "amount": {
-                    "type": "number",
+                    **AMOUNT_SCHEMA,
                     "description": "Amount of sell_token to sell",
                 },
                 "slippage": {
-                    "type": "number",
+                    **AMOUNT_SCHEMA,
                     "description": "Max slippage percentage",
-                    "default": 1.0,
+                    "default": 1,
                 },
                 "deadline_min": {
                     "type": "number",

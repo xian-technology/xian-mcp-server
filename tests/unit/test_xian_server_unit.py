@@ -757,7 +757,7 @@ class TestCompatibilityRegressions:
                     "nodes": [
                         {
                             "txHash": "tx-1",
-                            "value": "2.5",
+                            "value": "9007199254740993.000000000000000000000000000001",
                             "createdAt": "2026-05-21T14:00:00+00:00",
                             "transactionByTxHash": {
                                 "blockHeight": "100",
@@ -772,7 +772,7 @@ class TestCompatibilityRegressions:
 
         result = await xian_server._graphql_get_developer_rewards("dev-key")
 
-        assert result["total_rewards"] == "2.5"
+        assert result["total_rewards"] == "9007199254740993.000000000000000000000000000001"
         assert result["first_reward_at"] == "2026-05-21T14:00:00+00:00"
         assert result["last_block_height"] == 100
 
@@ -1076,8 +1076,8 @@ class TestCompatibilityRegressions:
             private_key="1" * 64,
             buy_token=" con_token ",
             sell_token=" currency ",
-            amount=1.25,
-            slippage=0.95,
+            amount="1.25",
+            slippage="0.95",
             deadline_min=2,
         )
 
@@ -1121,10 +1121,10 @@ class TestCompatibilityRegressions:
         assert result == {
             "token": "con_token",
             "base": "con_base",
-            "price": 5.0,
+            "price": "5",
             "pair_id": "PAIR-1",
-            "reserve_token": 2.0,
-            "reserve_base": 10.0,
+            "reserve_token": "2",
+            "reserve_base": "10",
         }
 
 
@@ -1501,6 +1501,18 @@ class TestUnsafeToolGating:
         buy_tool = next(tool for tool in tools if tool.name == "buy_on_dex")
 
         assert buy_tool.inputSchema["properties"]["amount"] == {
-            "type": "number",
+            "type": ["string", "integer"],
             "description": "Desired amount of buy_token to receive (output amount)",
         }
+
+
+@pytest.mark.asyncio
+async def test_sell_preserves_requested_decimal_and_transport_precision(monkeypatch):
+    amount = "1.123456789123456789123456789123"
+
+    async def observe(**kwargs):
+        return kwargs["kwargs"]
+
+    monkeypatch.setattr(xian_server, "send_transaction", observe)
+    result = await sell_on_dex(private_key="test", sell_token="con_token", amount=amount)
+    assert normalize_for_transport(result)["amount"] == amount

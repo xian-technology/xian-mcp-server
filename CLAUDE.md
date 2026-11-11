@@ -120,7 +120,7 @@ Lists all token balances for an address.
 
 #### send_tokens(private_key, to_address, token_contract, amount)
 Sends tokens to another address.
-- `amount`: Float value (e.g., 10.5)
+- `amount`: Exact decimal string (e.g., `"10.5"`) or integer
 - `token_contract`: "currency" or any token contract name
 - Returns transaction hash on success
 - **Always confirm with user before executing**
@@ -229,7 +229,7 @@ Gets current price for a token pair.
 - Returns: price, reserves, pair_id
 - Price is quoted as `token` per 1 `base`
 
-#### buy_on_dex(private_key, buy_token, sell_token, amount, slippage=1.0, deadline_min=1.0)
+#### buy_on_dex(private_key, buy_token, sell_token, amount, slippage=1, deadline_min=1.0)
 Buys tokens on the DEX.
 - `amount`: Desired output amount of `buy_token` to receive, not the amount of
   `sell_token` to spend
@@ -245,13 +245,11 @@ Buys tokens on the DEX.
 4. Confirm with user
 5. Execute trade
 
-#### sell_on_dex(private_key, sell_token, buy_token, amount, slippage=1.0, deadline_min=1.0)
+#### sell_on_dex(private_key, sell_token, buy_token, amount, slippage=1, deadline_min=1.0)
 Sells tokens on the DEX.
 - `amount`: Amount of `sell_token` to sell
 - Returns: transaction result
 - **Confirm trade details with user**
-
-**Important:** The implementation applies a 0.9999 multiplier to amounts that aren't exactly 8 decimal places to handle rounding issues.
 
 ### Cryptographic Operations
 
@@ -474,7 +472,7 @@ import currency
 balances = Hash(default_value=0)
 
 @export
-def transfer(amount: float, to: str):
+def transfer(amount: decimal, to: str):
     assert balances[ctx.caller] >= amount, 'Insufficient balance'
     balances[ctx.caller] -= amount
     balances[to] += amount
@@ -500,9 +498,9 @@ def transfer(amount: float, to: str):
 
 ### XSC-0001 (Token Standard)
 Required methods:
-- `transfer(amount: float, to: str)`
-- `approve(amount: float, to: str)`
-- `transfer_from(amount: float, to: str, main_account: str)`
+- `transfer(amount: decimal, to: str)`
+- `approve(amount: decimal, to: str)`
+- `transfer_from(amount: decimal, to: str, main_account: str)`
 - `balances` Hash for storing balances
 
 Required metadata:

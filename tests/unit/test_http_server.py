@@ -140,7 +140,7 @@ def test_default_xian_http_catalog_publishes_buy_amount_as_desired_output(monkey
     assert response.status_code == 200
     buy_tool = next(tool for tool in response.json() if tool["name"] == "buy_on_dex")
     assert buy_tool["parameters"]["properties"]["amount"] == {
-        "type": "number",
+        "type": ["string", "integer"],
         "description": "Desired amount of buy_token to receive (output amount)",
     }
 

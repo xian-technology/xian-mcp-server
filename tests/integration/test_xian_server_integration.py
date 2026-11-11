@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from decimal import Decimal
+
 import pytest
 
 from tests.shared import (
@@ -39,7 +41,9 @@ class TestBalanceAndState:
         assert "address" in result
         assert "token_contract" in result
         assert "balance" in result
-        assert isinstance(result["balance"], (int, float))
+        assert isinstance(result["balance"], (str, int, dict))
+        value = result["balance"]
+        assert Decimal(value["__big_int__"] if isinstance(value, dict) else value).is_finite()
 
     @pytest.mark.asyncio
     async def test_get_token_balances(self):
@@ -158,4 +162,5 @@ class TestDEX:
             assert "base" in result
             assert "price" in result
             assert "pair_id" in result
-            assert isinstance(result["price"], (int, float))
+            assert isinstance(result["price"], str)
+            assert Decimal(result["price"]).is_finite()

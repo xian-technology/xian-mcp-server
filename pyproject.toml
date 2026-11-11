@@ -16,7 +16,8 @@ dependencies = [
   "httpx>=0.28.1,<0.29",
   "mcp[cli]>=1.27.0,<2",
   "uvicorn>=0.46.0,<0.47",
-  "xian-tech-py[eth,hd]>=0.5.2,<0.6",
+  "xian-tech-runtime-types>=0.1.6,<0.2",
+  "xian-tech-py[eth,hd]>=0.5.3,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +40,7 @@ py-modules = [
   "serialization",
   "tool_policy",
   "xian_server",
+  "xian_connection",
 ]
 
 [tool.pytest.ini_options]
@@ -55,3 +57,12 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["F", "I"]
+
+# Standalone builds use release-candidate source revisions until the V2 SDK
+# packages are published. Ignore sibling-only editable sources in their metadata.
+[tool.uv]
+no-sources = true
+override-dependencies = [
+  "xian-tech-py[eth,hd] @ git+https://github.com/xian-technology/xian-py@4c7fc664c2fc142fdd3be53a91dff764f3c3b415",
+  "xian-tech-runtime-types @ git+https://github.com/xian-technology/xian-contracting@12b1c31f98d535a278b0c00e40dd90584f6b52f4#subdirectory=packages/xian-runtime-types",
+]

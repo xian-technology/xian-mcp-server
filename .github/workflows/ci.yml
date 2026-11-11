@@ -44,7 +44,7 @@ jobs:
         run: uv run --frozen --extra dev pytest -q
 
       - name: MCP handshake smoke test
-        run: uv run --frozen xian-mcp-server < test_requests.jsonl
+        run: uv run --frozen python scripts/smoke_stdio.py
 
   integration:
     name: Integration
