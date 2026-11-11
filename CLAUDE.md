@@ -233,9 +233,14 @@ Gets current price for a token pair.
 Buys tokens on the DEX.
 - `amount`: Desired output amount of `buy_token` to receive, not the amount of
   `sell_token` to spend
-- `slippage`: Maximum acceptable slippage (default 1%)
+- `slippage`: Slippage tolerance in percent (default 1, must be below 100).
+  The server quotes the direct pair and signs `max_input` = quoted input plus
+  this tolerance (rounded up to the sell token's precision); the contract
+  reverts if the required input exceeds it.
 - `deadline_min`: Transaction deadline in minutes
-- Uses contract `con_dex_helper`
+- Uses contract `con_dex_helper`; needs a `sell_token` allowance to
+  `con_dex_helper` of at least `max_input`
+- The result includes `trade_bounds` with `quoted_input` and `max_input`
 - **Confirm trade details with user**
 
 **Workflow:**
@@ -248,7 +253,12 @@ Buys tokens on the DEX.
 #### sell_on_dex(private_key, sell_token, buy_token, amount, slippage=1, deadline_min=1.0)
 Sells tokens on the DEX.
 - `amount`: Amount of `sell_token` to sell
-- Returns: transaction result
+- `slippage`: Slippage tolerance in percent (default 1, must be below 100).
+  The server quotes the direct pair and signs `min_out` = quoted output minus
+  this tolerance (rounded down to the buy token's precision); the contract
+  reverts if the received output is lower
+- Needs a `sell_token` allowance to `con_dex_helper` of at least `amount`
+- Returns: transaction result with `trade_bounds` (`quoted_output`, `min_out`)
 - **Confirm trade details with user**
 
 ### Cryptographic Operations

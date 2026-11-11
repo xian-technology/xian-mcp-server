@@ -219,6 +219,14 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 
 Use `tools/list` (see `test_requests.jsonl`) to discover the full schema.
 
+`buy_on_dex` and `sell_on_dex` call `con_dex_helper` on the direct pair. Each
+quotes the pair first and signs its own price bound: `buy_on_dex` signs
+`max_input` (quoted input plus the `slippage` percentage, rounded up) and
+`sell_on_dex` signs `min_out` (quoted output minus `slippage`, rounded down).
+The contract reverts when execution would cross that bound. The result carries
+the quote and bound under `trade_bounds`. Both need a `sell_token` allowance to
+`con_dex_helper` (at least `max_input` for a buy, `amount` for a sell).
+
 `create_hd_wallet(account_index=0)` and
 `create_hd_wallet_from_mnemonic(mnemonic, account_index=0)` use the same indexed
 Xian mnemonic derivation as the browser/mobile wallets and Python's

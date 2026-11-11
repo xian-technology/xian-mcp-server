@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 from xian_py.models import TransactionReceipt, TransactionSubmission
 
+import dex_tools
 import xian_server
 from serialization import normalize_for_transport
 from tests.shared import (
@@ -59,6 +60,19 @@ from xian_server import (
     sign_message,
     verify_signature,
 )
+
+
+def _fixed_trade_bounds(monkeypatch, *, max_input="2", min_out="0.5"):
+    async def bounds(*, side, **kwargs):
+        if side == "buy":
+            return {
+                "bound_name": "max_input",
+                "bound": Decimal(max_input),
+                "quoted_input": Decimal("1.9"),
+            }
+        return {"bound_name": "min_out", "bound": Decimal(min_out), "quoted_output": Decimal("0.6")}
+
+    monkeypatch.setattr(dex_tools, "helper_trade_bounds", bounds)
 
 
 @dataclass(frozen=True)
@@ -1029,6 +1043,7 @@ class TestCompatibilityRegressions:
             return {"tx_hash": "ok"}
 
         monkeypatch.setattr(xian_server, "send_transaction", fake_send_transaction)
+        _fixed_trade_bounds(monkeypatch)
 
         buy_result = await buy_on_dex(
             private_key="1" * 64,
@@ -1041,8 +1056,8 @@ class TestCompatibilityRegressions:
             amount=1,
         )
 
-        assert buy_result == {"tx_hash": "ok"}
-        assert sell_result == {"tx_hash": "ok"}
+        assert buy_result["tx_hash"] == "ok"
+        assert sell_result["tx_hash"] == "ok"
         assert calls[0]["contract"] == "con_dex_helper"
         assert calls[1]["contract"] == "con_dex_helper"
         assert calls[0]["kwargs"]["sell_token"] == "currency"
@@ -1071,6 +1086,7 @@ class TestCompatibilityRegressions:
 
         monkeypatch.setattr(xian_server, "datetime", FixedDateTime)
         monkeypatch.setattr(xian_server, "send_transaction", fake_send_transaction)
+        _fixed_trade_bounds(monkeypatch, max_input="1.3")
 
         result = await buy_on_dex(
             private_key="1" * 64,
@@ -1081,14 +1097,17 @@ class TestCompatibilityRegressions:
             deadline_min=2,
         )
 
-        assert result == {"tx_hash": "buy"}
+        assert result == {
+            "tx_hash": "buy",
+            "trade_bounds": {"quoted_input": "1.9", "max_input": "1.3"},
+        }
         assert calls[0]["contract"] == "con_dex_helper"
         assert calls[0]["function"] == "buy"
         assert calls[0]["kwargs"] == {
             "buy_token": "con_token",
             "sell_token": "currency",
             "amount": Decimal("1.25"),
-            "slippage": Decimal("0.95"),
+            "max_input": Decimal("1.3"),
             "deadline": {"__time__": [2026, 5, 21, 12, 2, 30, 123456]},
         }
 
@@ -1514,5 +1533,6 @@ async def test_sell_preserves_requested_decimal_and_transport_precision(monkeypa
         return kwargs["kwargs"]
 
     monkeypatch.setattr(xian_server, "send_transaction", observe)
-    result = await sell_on_dex(private_key="test", sell_token="con_token", amount=amount)
+    _fixed_trade_bounds(monkeypatch)
+    result = await sell_on_dex(private_key="1" * 64, sell_token="con_token", amount=amount)
     assert normalize_for_transport(result)["amount"] == amount

@@ -29,8 +29,9 @@ from xian_py import Wallet, XianAsync
 from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
 from xian_py.wallet import HDWallet, verify_msg
-from xian_runtime_types.decimal import ContractingDecimal
+from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 
+import dex_tools
 from dex_tools import DEX_TOOL_SPECS
 from logging_setup import configure_logging, exception_context, request_context
 from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
@@ -1574,6 +1575,58 @@ def _deadline_value(*, minutes_from_now: float) -> dict[str, list[int]]:
     }
 
 
+async def _helper_trade(
+    *,
+    side: str,
+    private_key: str,
+    sell_token: str,
+    buy_token: str,
+    amount: str | int,
+    slippage: str | int,
+    deadline_min: float,
+) -> dict[str, Any] | str:
+    """Quote, bound and submit a con_dex_helper buy or sell."""
+    try:
+        amount_value = exact_amount(amount, field="Amount", positive=True)
+        slippage_value = exact_amount(slippage, field="Slippage")
+        account = Wallet(private_key.strip()).public_key
+        bounds = await dex_tools.helper_trade_bounds(
+            side=side,
+            sell_token=sell_token,
+            buy_token=buy_token,
+            amount=amount_value,
+            slippage_percent=slippage_value,
+            account=account,
+        )
+    except ValueError as exc:
+        return f"❌ Error: {exc}"
+
+    bound_name = bounds.pop("bound_name")
+    bound = bounds.pop("bound")
+    tokens = (
+        {"buy_token": buy_token, "sell_token": sell_token}
+        if side == "buy"
+        else {"sell_token": sell_token, "buy_token": buy_token}
+    )
+    result = await send_transaction(
+        private_key=private_key,
+        contract="con_dex_helper",
+        function=side,
+        kwargs={
+            **tokens,
+            "amount": amount_value,
+            bound_name: bound,
+            "deadline": _deadline_value(minutes_from_now=deadline_min),
+        },
+    )
+    if isinstance(result, dict):
+        result["trade_bounds"] = {
+            **{key: canonical_fixed(value) for key, value in bounds.items()},
+            bound_name: canonical_fixed(bound),
+        }
+    return result
+
+
 async def buy_on_dex(
     private_key: str = "",
     buy_token: str = "",
@@ -1582,7 +1635,7 @@ async def buy_on_dex(
     slippage: str | int = 1,
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
-    """Buy a desired output amount of tokens on the DEX."""
+    """Buy an exact output amount; the signed max_input bounds the price."""
     if not private_key.strip():
         return "❌ Error: Private key is required"
     if not buy_token.strip():
@@ -1591,25 +1644,15 @@ async def buy_on_dex(
         return "❌ Error: Sell token contract is required"
 
     logger.debug("Buying %s %s with %s", amount, buy_token, sell_token)
-
     try:
-        amount_value = exact_amount(amount, field="Amount", positive=True)
-        slippage_value = exact_amount(slippage, field="Slippage")
-    except ValueError as exc:
-        return f"❌ Error: {exc}"
-
-    try:
-        return await send_transaction(
+        return await _helper_trade(
+            side="buy",
             private_key=private_key,
-            contract="con_dex_helper",
-            function="buy",
-            kwargs={
-                "buy_token": buy_token.strip(),
-                "sell_token": sell_token.strip(),
-                "amount": amount_value,
-                "slippage": slippage_value,
-                "deadline": _deadline_value(minutes_from_now=deadline_min),
-            },
+            sell_token=sell_token.strip(),
+            buy_token=buy_token.strip(),
+            amount=amount,
+            slippage=slippage,
+            deadline_min=deadline_min,
         )
     except Exception as ex:
         logger.error("Error buying on DEX", extra=exception_context(ex))
@@ -1624,7 +1667,7 @@ async def sell_on_dex(
     slippage: str | int = 1,
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
-    """Sell tokens on the DEX."""
+    """Sell an exact input amount; the signed min_out bounds the price."""
     if not private_key.strip():
         return "❌ Error: Private key is required"
     if not sell_token.strip():
@@ -1633,25 +1676,15 @@ async def sell_on_dex(
         return "❌ Error: Buy token contract is required"
 
     logger.debug("Selling %s %s for %s", amount, sell_token, buy_token)
-
     try:
-        amount_value = exact_amount(amount, field="Amount", positive=True)
-        slippage_value = exact_amount(slippage, field="Slippage")
-    except ValueError as exc:
-        return f"❌ Error: {exc}"
-
-    try:
-        return await send_transaction(
+        return await _helper_trade(
+            side="sell",
             private_key=private_key,
-            contract="con_dex_helper",
-            function="sell",
-            kwargs={
-                "sell_token": sell_token.strip(),
-                "buy_token": buy_token.strip(),
-                "amount": amount_value,
-                "slippage": slippage_value,
-                "deadline": _deadline_value(minutes_from_now=deadline_min),
-            },
+            sell_token=sell_token.strip(),
+            buy_token=buy_token.strip(),
+            amount=amount,
+            slippage=slippage,
+            deadline_min=deadline_min,
         )
     except Exception as ex:
         logger.error("Error selling on DEX", extra=exception_context(ex))
@@ -2498,7 +2531,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "buy_on_dex",
-        "description": "Buy a desired output amount of tokens on the XIAN DEX",
+        "description": (
+            "Buy an exact output amount of tokens on the XIAN DEX through con_dex_helper. "
+            "The server quotes the direct pair and signs max_input = quoted input plus "
+            "slippage; the trade reverts if the input would exceed it. Requires a "
+            "sell_token allowance to con_dex_helper of at least max_input."
+        ),
         "schema": {
             "type": "object",
             "properties": {
@@ -2518,7 +2556,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
                 },
                 "slippage": {
                     **AMOUNT_SCHEMA,
-                    "description": "Max slippage percentage",
+                    "description": (
+                        "Slippage tolerance in percent (0 to below 100) applied to a fresh "
+                        "quote to derive the signed price bound"
+                    ),
                     "default": 1,
                 },
                 "deadline_min": {
@@ -2534,7 +2575,12 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "sell_on_dex",
-        "description": "Sell tokens on the XIAN DEX",
+        "description": (
+            "Sell an exact input amount of tokens on the XIAN DEX through con_dex_helper. "
+            "The server quotes the direct pair and signs min_out = quoted output minus "
+            "slippage; the trade reverts if the received output would be lower. Requires "
+            "a sell_token allowance to con_dex_helper of at least amount."
+        ),
         "schema": {
             "type": "object",
             "properties": {
@@ -2557,7 +2603,10 @@ TOOL_SPECS: List[dict[str, Any]] = [
                 },
                 "slippage": {
                     **AMOUNT_SCHEMA,
-                    "description": "Max slippage percentage",
+                    "description": (
+                        "Slippage tolerance in percent (0 to below 100) applied to a fresh "
+                        "quote to derive the signed price bound"
+                    ),
                     "default": 1,
                 },
                 "deadline_min": {

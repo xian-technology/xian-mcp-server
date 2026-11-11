@@ -719,6 +719,53 @@ async def _pair_for_tokens(token_a: str, token_b: str) -> dict[str, Any] | None:
     return None if pair_id in (None, 0) else await _pair_record(int(pair_id))
 
 
+HELPER_SLIPPAGE_LIMIT = Decimal(100)
+
+
+async def helper_trade_bounds(
+    *,
+    side: str,
+    sell_token: str,
+    buy_token: str,
+    amount: Decimal,
+    slippage_percent: Decimal,
+    account: str,
+) -> dict[str, Any]:
+    """Quote a con_dex_helper trade and derive the signer's price bound.
+
+    The helper trades the direct pair only. ``buy`` signs ``max_input`` (the
+    quoted input plus slippage, rounded up); ``sell`` signs ``min_out`` (the
+    quoted output minus slippage, rounded down). Both bounds must stay positive.
+    """
+    if not 0 <= slippage_percent < HELPER_SLIPPAGE_LIMIT:
+        raise ValueError("Slippage must be at least 0 and below 100 percent")
+    pair = await _pair_for_tokens(sell_token, buy_token)
+    if pair is None:
+        raise ValueError(f"No DEX pair exists for {sell_token} and {buy_token}")
+    kind = "exact_out" if side == "buy" else "exact_in"
+    quote = await _quote(
+        kind=kind,
+        token_in=sell_token,
+        token_out=buy_token,
+        amount=amount,
+        path=[pair["pair_id"]],
+        account=account,
+        max_hops=1,
+    )
+    tolerance = ContractingDecimal(str(slippage_percent)) / ContractingDecimal(100)
+    if side == "buy":
+        quoted = quote["amount_in"]
+        bound = await _normalize_amount(quoted * (1 + tolerance), sell_token, round_up=True)
+        names = ("quoted_input", "max_input")
+    else:
+        quoted = quote["amount_out"]
+        bound = await _normalize_amount(quoted * (1 - tolerance), buy_token)
+        names = ("quoted_output", "min_out")
+    if bound <= 0:
+        raise ValueError(f"Quoted trade is too small for a positive {names[1]}")
+    return {"bound_name": names[1], "bound": bound, names[0]: quoted}
+
+
 async def dex_plan_add_liquidity(
     token_a: str = "",
     token_b: str = "",
