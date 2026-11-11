@@ -4,7 +4,7 @@ requires-python = "==3.14.*"
 
 [manifest]
 overrides = [
-    { name = "xian-tech-py", extras = ["eth", "hd"], git = "https://github.com/xian-technology/xian-py?rev=4c7fc664c2fc142fdd3be53a91dff764f3c3b415" },
+    { name = "xian-tech-py", extras = ["eth", "hd"], git = "https://github.com/xian-technology/xian-py?rev=2a3cd927f3f18e4e7f3d0aefdbf11457d83acd8e" },
     { name = "xian-tech-runtime-types", git = "https://github.com/xian-technology/xian-contracting?subdirectory=packages%2Fxian-runtime-types&rev=12b1c31f98d535a278b0c00e40dd90584f6b52f4" },
 ]
 
@@ -1299,7 +1299,7 @@ wheels = [
 [[package]]
 name = "xian-tech-py"
 version = "0.5.3"
-source = { git = "https://github.com/xian-technology/xian-py?rev=4c7fc664c2fc142fdd3be53a91dff764f3c3b415#4c7fc664c2fc142fdd3be53a91dff764f3c3b415" }
+source = { git = "https://github.com/xian-technology/xian-py?rev=2a3cd927f3f18e4e7f3d0aefdbf11457d83acd8e#2a3cd927f3f18e4e7f3d0aefdbf11457d83acd8e" }
 dependencies = [
     { name = "aiohttp" },
     { name = "pynacl" },

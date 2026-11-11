@@ -63,6 +63,6 @@ select = ["F", "I"]
 [tool.uv]
 no-sources = true
 override-dependencies = [
-  "xian-tech-py[eth,hd] @ git+https://github.com/xian-technology/xian-py@4c7fc664c2fc142fdd3be53a91dff764f3c3b415",
+  "xian-tech-py[eth,hd] @ git+https://github.com/xian-technology/xian-py@2a3cd927f3f18e4e7f3d0aefdbf11457d83acd8e",
   "xian-tech-runtime-types @ git+https://github.com/xian-technology/xian-contracting@12b1c31f98d535a278b0c00e40dd90584f6b52f4#subdirectory=packages/xian-runtime-types",
 ]
