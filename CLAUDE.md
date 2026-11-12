@@ -396,6 +396,10 @@ Return strings with ❌ emoji and clear error message:
 ```
 "❌ Error: Insufficient balance"
 ```
+Over MCP, these strings and the DEX tools' `{"ok": false, "error": ...}` refusals
+come back as tool results with `isError: true`. A transaction submission is not
+an execution result: check `accepted`, then confirm execution with
+`get_transaction(tx_hash)`.
 
 ### User-Facing Language
 - Use clear, non-technical language when possible

@@ -288,7 +288,7 @@ docker run --rm xian-mcp-server python scripts/smoke_stdio.py   # MCP handshake 
 To test an unreleased sibling SDK explicitly after the standard setup:
 
 ```bash
-uv pip install --no-sources \
+uv pip install --no-config \
   -e ../xian-contracting/packages/xian-runtime-types \
   -e ../xian-contracting/packages/xian-accounts \
   -e "../xian-py[eth,hd]"
@@ -296,6 +296,9 @@ uv run --no-sync pytest -q
 uv run --no-sync python scripts/smoke_stdio.py
 ```
 
+`--no-config` is required: inside this repo `uv pip` otherwise applies the
+`[tool.uv]` `override-dependencies`, keeps the pinned Git revisions of
+`xian-tech-py` and `xian-tech-runtime-types`, and reports no changes.
 Use `--no-sync` while testing those overrides. Run `uv sync --frozen --extra dev`
 to return to the locked dependency versions. Docker Compose and the `local`
 Docker target retain their explicit sibling build contexts.

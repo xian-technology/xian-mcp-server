@@ -24,7 +24,7 @@ from typing import Any, Awaitable, Callable, Dict, List
 import aiohttp
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, TextContent, Tool
 from xian_py import Wallet, XianAsync
 from xian_py.crypto import decrypt_as_receiver, encrypt
 from xian_py.transaction import simulate_tx_async
@@ -66,9 +66,11 @@ def format_success_response(data: Any) -> List[TextContent]:
     return [TextContent(type="text", text=text)]
 
 
-def format_error_response(error_msg: str) -> List[TextContent]:
-    """Wrap an error in MCP TextContent."""
-    return [TextContent(type="text", text=f"Error: {error_msg}")]
+def format_error_response(error_msg: str) -> CallToolResult:
+    """Wrap an error in an MCP tool result flagged with isError."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=f"Error: {error_msg}")], isError=True
+    )
 
 
 def _unsafe_wallet_tools_enabled() -> bool:
@@ -2744,7 +2746,7 @@ async def list_tools() -> list[Tool]:
 
 
 @app.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CallToolResult:
     """Handle tool execution via MCP."""
     spec = TOOL_SPEC_BY_NAME.get(name)
     if spec is None:
@@ -2776,6 +2778,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
     if isinstance(result, str) and result.startswith("❌"):
         return format_error_response(f"{name}: {result[2:].strip()}")
+    if isinstance(result, dict) and result.get("ok") is False:
+        # DEX tools refuse with a structured {"ok": false, "error": ...} body.
+        return CallToolResult(content=format_success_response(result), isError=True)
 
     return format_success_response(result)
 

@@ -4,11 +4,13 @@ import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from xian_py import Wallet
+from xian_runtime_types.decimal import ContractingDecimal
 
 import dex_tools
 from dex_plan_registry import PlanRegistry, PlanRegistryError
@@ -61,9 +63,52 @@ def quote_chain(monkeypatch):
     async def precision(token: str):
         return None
 
+    async def router(contract: str, function: str, **kwargs: Any):
+        assert (contract, function) == ("con_dex", "getAmountIn")
+        multiplier = Decimal(10_000 - kwargs["feeBps"]) / 10_000
+        out = Decimal(str(kwargs["amountOut"]))
+        reserve_in = Decimal(str(kwargs["reserveIn"]))
+        reserve_out = Decimal(str(kwargs["reserveOut"]))
+        return ContractingDecimal(reserve_in * out / ((reserve_out - out) * multiplier))
+
     monkeypatch.setattr(dex_tools, "_all_pairs", all_pairs)
     monkeypatch.setattr(dex_tools, "_fee_bps", fee_bps)
     monkeypatch.setattr(dex_tools, "_token_precision", precision)
+    monkeypatch.setattr(dex_tools, "_call", router)
+
+
+@pytest.mark.asyncio
+async def test_exact_out_quote_is_the_routers_own_minimal_input(quote_chain, monkeypatch):
+    # The router's getAmountIn is the exact inverse of its swap; a locally
+    # recomputed inverse can be a few 1e-30 units short, so a zero-slippage
+    # bound built from it reverts on-chain.
+    calls = []
+    router_input = ContractingDecimal("111.445447453240842747299123567622")
+
+    async def router(contract: str, function: str, **kwargs: Any):
+        calls.append((contract, function, kwargs))
+        return router_input
+
+    monkeypatch.setattr(dex_tools, "_call", router)
+    quote = await dex_tools.dex_quote_exact_out(
+        "token_a", "token_b", "100", path=[1], account=TEST_ADDRESS
+    )
+
+    assert quote["amount_in"] == router_input
+    assert calls == [
+        (
+            "con_dex",
+            "getAmountIn",
+            {
+                "amountOut": ContractingDecimal("100"),
+                "reserveIn": ContractingDecimal("1000"),
+                "reserveOut": ContractingDecimal("1000"),
+                "feeBps": 30,
+                "tokenIn": "token_a",
+                "tokenOut": "token_b",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,8 @@ from decimal import Decimal
 from typing import Any
 
 from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
+from xian_runtime_types.encoding import Encoder
+from xian_runtime_types.time import Datetime, Timedelta
 
 # Decimal arguments cross JSON as text. Integers are also accepted for whole amounts.
 AMOUNT_SCHEMA = {"type": ["string", "integer"]}
@@ -44,6 +46,10 @@ def normalize_for_transport(
 
     if isinstance(value, (Decimal, ContractingDecimal)):
         return canonical_fixed(value)
+
+    if isinstance(value, (Datetime, Timedelta)):
+        # The same {"__time__"}/{"__delta__"} form tool arguments accept.
+        return Encoder().default(value)
 
     if is_dataclass(value):
         return normalize_for_transport(asdict(value), include_raw=include_raw)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -1457,6 +1458,27 @@ class TestTransportSerialization:
         assert '"receipt"' in result[0].text
         assert '"raw"' not in result[0].text
 
+    def test_contract_time_values_cross_as_wire_json(self):
+        # Simulation payloads decode deadlines into runtime Datetime objects.
+        from xian_runtime_types.time import Datetime, Timedelta
+
+        payload = {
+            "kwargs": {
+                "deadline": Datetime(2026, 11, 12, 0, 37, 31, 618226),
+                "window": Timedelta(days=1, seconds=5),
+            }
+        }
+
+        assert normalize_for_transport(payload) == {
+            "kwargs": {
+                "deadline": {"__time__": [2026, 11, 12, 0, 37, 31, 618226]},
+                "window": {"__delta__": [1, 5]},
+            }
+        }
+        assert json.loads(format_success_response(payload)[0].text) == normalize_for_transport(
+            payload
+        )
+
     def test_normalize_for_transport_can_include_raw_payloads(self, monkeypatch):
         monkeypatch.setenv("XIAN_INCLUDE_RAW", "true")
 
@@ -1495,8 +1517,20 @@ class TestUnsafeToolGating:
 
         result = await xian_server.call_tool("create_wallet", {})
 
-        assert len(result) == 1
-        assert "disabled by default" in result[0].text
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert "disabled by default" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_call_tool_flags_structured_dex_refusals_as_errors(self, monkeypatch):
+        monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
+
+        result = await xian_server.call_tool(
+            "dex_submit_swap", {"private_key": TEST_PRIVATE_KEY, "plan_id": "unknown-plan"}
+        )
+
+        assert result.isError is True
+        assert json.loads(result.content[0].text)["ok"] is False
 
     @pytest.mark.asyncio
     async def test_list_tools_exposes_unsafe_tools_when_enabled(self, monkeypatch):

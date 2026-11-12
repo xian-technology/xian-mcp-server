@@ -401,7 +401,6 @@ async def _quote_path_exact_out(
     desired = await _normalize_amount(amount_out, token_out, round_up=True)
     amounts: list[ContractingDecimal] = [ContractingDecimal(0)] * (len(hops) + 1)
     amounts[-1] = desired
-    multiplier = ContractingDecimal(10_000 - fee_bps) / ContractingDecimal(10_000)
     for index in range(len(hops) - 1, -1, -1):
         hop = hops[index]
         reserve_in = ContractingDecimal(str(hop["reserve_in"]))
@@ -409,8 +408,18 @@ async def _quote_path_exact_out(
         required_out = amounts[index + 1]
         if required_out >= reserve_out:
             raise ValueError(f"Pair {hop['pair_id']} has insufficient liquidity")
-        required_in = reserve_in * required_out / ((reserve_out - required_out) * multiplier)
-        amounts[index] = await _normalize_amount(required_in, hop["token_in"], round_up=True)
+        # The router's exact inverse of its own swap, on token_in's grid.
+        required_in = await _call(
+            ROUTER_CONTRACT,
+            "getAmountIn",
+            amountOut=required_out,
+            reserveIn=reserve_in,
+            reserveOut=reserve_out,
+            feeBps=fee_bps,
+            tokenIn=hop["token_in"],
+            tokenOut=hop["token_out"],
+        )
+        amounts[index] = ContractingDecimal(str(required_in))
     mid_input = desired
     for hop in reversed(hops):
         mid_input = (

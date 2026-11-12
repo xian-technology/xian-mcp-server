@@ -40,12 +40,17 @@ async def test_stdio_simulation_preserves_exact_numbers(unused_tcp_port):
             await mcp.initialize()
             args = {"contract": "con_numeric", "function": "echo", "address": "a" * 64}
             result = await mcp.call_tool("simulate_transaction", {**args, "kwargs": kwargs})
+            assert result.isError is False
             assert json.loads(result.content[0].text) == {
                 "amount": amount,
                 "count": {"__big_int__": count},
             }
             error = await mcp.call_tool("simulate_transaction", {**args, "kwargs": {"amount": 0.1}})
             assert "Error" in error.content[0].text
+            # MCP clients and models read the protocol flag, not the prose.
+            assert error.isError is True
+            unknown = await mcp.call_tool("no_such_tool", {})
+            assert unknown.isError is True
         assert requests == [kwargs]
     finally:
         await runner.cleanup()
