@@ -148,3 +148,103 @@ async def test_sell_refuses_a_zero_min_out(market, monkeypatch):
     )
     assert result.startswith("❌") and "min_out" in result
     assert market["sent"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "kwargs", "expected"),
+    [
+        (xian_server.buy_on_dex, {"buy_token": "x"}, "❌ Error: Private key is required"),
+        (xian_server.buy_on_dex, {"private_key": "k"}, "❌ Error: Buy token contract is required"),
+        (
+            xian_server.buy_on_dex,
+            {"private_key": "k", "buy_token": " ", "sell_token": " "},
+            "❌ Error: Buy token contract is required",
+        ),
+        (
+            xian_server.buy_on_dex,
+            {"private_key": "k", "buy_token": "x", "sell_token": " "},
+            "❌ Error: Sell token contract is required",
+        ),
+        (xian_server.sell_on_dex, {"sell_token": "x"}, "❌ Error: Private key is required"),
+        (
+            xian_server.sell_on_dex,
+            {"private_key": "k"},
+            "❌ Error: Sell token contract is required",
+        ),
+        (
+            xian_server.sell_on_dex,
+            {"private_key": "k", "sell_token": " ", "buy_token": " "},
+            "❌ Error: Sell token contract is required",
+        ),
+        (
+            xian_server.sell_on_dex,
+            {"private_key": "k", "sell_token": "x", "buy_token": " "},
+            "❌ Error: Buy token contract is required",
+        ),
+    ],
+)
+async def test_trade_names_the_first_missing_input(market, tool, kwargs, expected):
+    assert await tool(**kwargs) == expected
+    assert market["sent"] == []
+
+
+@pytest.mark.asyncio
+async def test_trade_strips_token_names_before_signing(market):
+    await xian_server.buy_on_dex(
+        private_key=TEST_PRIVATE_KEY,
+        buy_token=f" {TEST_DEX_TOKEN} ",
+        sell_token=f" {TEST_DEX_BASE} ",
+        amount="1",
+    )
+    kwargs = market["sent"][0]["kwargs"]
+    assert (kwargs["buy_token"], kwargs["sell_token"]) == (TEST_DEX_TOKEN, TEST_DEX_BASE)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "tokens", "verb"),
+    [
+        (
+            xian_server.buy_on_dex,
+            {"buy_token": TEST_DEX_TOKEN, "sell_token": TEST_DEX_BASE},
+            "buying",
+        ),
+        (
+            xian_server.sell_on_dex,
+            {"sell_token": TEST_DEX_TOKEN, "buy_token": TEST_DEX_BASE},
+            "selling",
+        ),
+    ],
+)
+async def test_unexpected_trade_failures_become_error_text(market, monkeypatch, tool, tokens, verb):
+    async def broken_send(**kwargs):
+        raise RuntimeError("node down")
+
+    monkeypatch.setattr(xian_server, "send_transaction", broken_send)
+    result = await tool(private_key=TEST_PRIVATE_KEY, amount="1", **tokens)
+    assert result == f"❌ Error {verb} on DEX: node down"
+
+
+@pytest.mark.asyncio
+async def test_trade_defaults_to_one_percent_slippage(market):
+    result = await xian_server.buy_on_dex(
+        private_key=TEST_PRIVATE_KEY,
+        buy_token=TEST_DEX_TOKEN,
+        sell_token=TEST_DEX_BASE,
+        amount="1.5",
+    )
+    assert result["trade_bounds"]["max_input"] == "2.02000001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "tokens"),
+    [
+        (xian_server.buy_on_dex, {"buy_token": TEST_DEX_TOKEN, "sell_token": TEST_DEX_BASE}),
+        (xian_server.sell_on_dex, {"sell_token": TEST_DEX_TOKEN, "buy_token": TEST_DEX_BASE}),
+    ],
+)
+async def test_trade_without_an_amount_is_refused(market, tool, tokens):
+    assert await tool(private_key=TEST_PRIVATE_KEY, **tokens) == "❌ Error: Amount must be positive"
+    assert market["sent"] == []

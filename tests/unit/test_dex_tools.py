@@ -112,6 +112,25 @@ async def test_exact_out_quote_is_the_routers_own_minimal_input(quote_chain, mon
 
 
 @pytest.mark.asyncio
+async def test_exact_out_quote_chains_hops_and_reports_price_impact(quote_chain):
+    quote = await dex_tools.dex_quote_exact_out(
+        "token_a", "token_c", "100", path=[1, 2], account=TEST_ADDRESS
+    )
+
+    first, second = quote["hops"]
+    assert second["amount_out"] == ContractingDecimal("100") == quote["amount_out"]
+    assert first["amount_out"] == second["amount_in"]
+    assert first["amount_in"] == quote["amount_in"] == quote["amounts"][0]
+    assert quote["amounts"] == [first["amount_in"], first["amount_out"], second["amount_out"]]
+    # Mid price: 100 token_c costs 50 token_b, which costs 50 token_a.
+    assert quote["mid_price_input"] == ContractingDecimal("50")
+    expected_impact = 1 - ContractingDecimal("50") / quote["amount_in"]
+    assert quote["price_impact"] == expected_impact
+    assert quote["price_impact_bps"] == expected_impact * 10_000
+    assert 0 < quote["price_impact"] < 1
+
+
+@pytest.mark.asyncio
 async def test_exact_in_and_out_quotes_select_structured_route(quote_chain):
     exact_in = await dex_tools.dex_quote_exact_in("token_a", "token_c", 100, account=TEST_ADDRESS)
     assert exact_in["path"] == [1, 2]
