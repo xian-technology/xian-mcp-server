@@ -263,7 +263,8 @@ file (template in `.env.example`) when using `docker-compose`.
 - `dex_plan_registry.py` — bounded process-local storage for immutable,
   expiring, single-use DEX plans.
 - `http_server.py` — reusable HTTP REST wrapper around the same tool specs.
-- `serialization.py` — JSON-RPC and tool-result serialization helpers.
+- `serialization.py` — explicit tool-result serialization; types without an
+  encoding raise `TypeError` and surface as tool errors.
 - `mcp.json`, `custom_catalog.yaml` — example client configurations.
 - `test_requests.jsonl` — sample MCP handshake messages.
 - `tests/` — `unit/` (deterministic) and `integration/` (live-network)

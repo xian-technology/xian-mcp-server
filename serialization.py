@@ -12,6 +12,8 @@ from xian_runtime_types.time import Datetime, Timedelta
 
 # Decimal arguments cross JSON as text. Integers are also accepted for whole amounts.
 AMOUNT_SCHEMA = {"type": ["string", "integer"]}
+# Larger integers lose precision in JavaScript clients and cross as {"__big_int__": text}.
+MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 
 
 def exact_amount(value: Any, *, field: str, positive: bool = False) -> Decimal:
@@ -34,46 +36,38 @@ def normalize_for_transport(
     *,
     include_raw: bool | None = None,
 ) -> Any:
-    """Convert SDK/model objects into plain JSON-friendly Python data."""
+    """Convert tool results into plain JSON data; unknown types raise TypeError."""
     if include_raw is None:
         include_raw = _include_raw_payloads()
+    return _encode(value, include_raw)
 
-    if isinstance(value, int) and abs(value) > (1 << 53) - 1:
-        return {"__big_int__": str(value)}
 
+def _encode(value: Any, include_raw: bool) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-
+        return _encode_scalar(value)
     if isinstance(value, (Decimal, ContractingDecimal)):
         return canonical_fixed(value)
-
     if isinstance(value, (Datetime, Timedelta)):
         # The same {"__time__"}/{"__delta__"} form tool arguments accept.
         return Encoder().default(value)
+    return _encode_container(value, include_raw)
 
+
+def _encode_scalar(value: Any) -> Any:
+    if isinstance(value, int) and abs(value) > MAX_SAFE_JSON_INTEGER:
+        return {"__big_int__": str(value)}
+    return value
+
+
+def _encode_container(value: Any, include_raw: bool) -> Any:
     if is_dataclass(value):
-        return normalize_for_transport(asdict(value), include_raw=include_raw)
-
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        return normalize_for_transport(model_dump(), include_raw=include_raw)
-
-    dict_method = getattr(value, "dict", None)
-    if callable(dict_method):
-        return normalize_for_transport(dict_method(), include_raw=include_raw)
-
+        return _encode(asdict(value), include_raw)
     if isinstance(value, Mapping):
         return {
-            str(key): normalize_for_transport(item, include_raw=include_raw)
+            str(key): _encode(item, include_raw)
             for key, item in value.items()
             if include_raw or str(key) != "raw"
         }
-
     if isinstance(value, (list, tuple, set)):
-        return [normalize_for_transport(item, include_raw=include_raw) for item in value]
-
-    value_dict = getattr(value, "__dict__", None)
-    if isinstance(value_dict, dict):
-        return normalize_for_transport(value_dict, include_raw=include_raw)
-
-    return value
+        return [_encode(item, include_raw) for item in value]
+    raise TypeError(f"no MCP transport encoding for {type(value).__name__}")

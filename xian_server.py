@@ -53,16 +53,10 @@ def format_success_response(data: Any) -> List[TextContent]:
     Wrap a successful result in MCP TextContent.
     - Dict/list values are JSON-formatted for readability.
     - Strings are passed through as-is.
+    - Types without an explicit transport encoding raise TypeError.
     """
     data = normalize_for_transport(data)
-    if isinstance(data, str):
-        text = data
-    else:
-        try:
-            text = json.dumps(data, indent=2)
-        except Exception:
-            text = str(data)
-
+    text = data if isinstance(data, str) else json.dumps(data, indent=2)
     return [TextContent(type="text", text=text)]
 
 
@@ -1194,6 +1188,14 @@ async def list_shielded_wallet_history(
         return f"❌ Error listing shielded wallet history: {str(ex)}"
 
 
+def _accepted_submission(submission: Any) -> dict[str, Any] | str:
+    """A CheckTx rejection is a tool error; accepted or pending submissions pass through."""
+    result = normalize_for_transport(submission)
+    if result["accepted"] is False:
+        return f"❌ Error: transaction rejected at CheckTx: {result['message']}"
+    return result
+
+
 async def send_transaction(
     private_key: str = "",
     contract: str = "",
@@ -1217,8 +1219,7 @@ async def send_transaction(
         async with XianAsync(
             NODE_URL, wallet=wallet, chain_id=CHAIN_ID, config=CLIENT_CONFIG
         ) as xian:
-            result = await xian.send_tx(contract, function, kwargs)
-            return normalize_for_transport(result)
+            return _accepted_submission(await xian.send_tx(contract, function, kwargs))
     except Exception as ex:
         logger.error("Error sending transaction", extra=exception_context(ex))
         return f"❌ Error sending transaction: {str(ex)}"
@@ -1249,8 +1250,7 @@ async def send_tokens(
         async with XianAsync(
             NODE_URL, wallet=wallet, chain_id=CHAIN_ID, config=CLIENT_CONFIG
         ) as xian:
-            result = await xian.send(amount, to_address, token_contract)
-            return normalize_for_transport(result)
+            return _accepted_submission(await xian.send(amount, to_address, token_contract))
     except Exception as ex:
         logger.error("Error sending tokens", extra=exception_context(ex))
         return f"❌ Error sending tokens: {str(ex)}"
@@ -1699,62 +1699,45 @@ async def get_dex_price(
     """Get DEX price for a token against a base currency."""
     if not token_contract.strip():
         return "❌ Error: Token contract is required"
-
-    token = token_contract.strip()
-    base = base_contract.strip()
-
-    token_a, token_b = (token, base) if token < base else (base, token)
-
     try:
-        pair_id = await get_state(f"con_pairs.toks_to_pair:{token_a}:{token_b}")
-
-        if isinstance(pair_id, str):
-            return pair_id
-
-        if pair_id.get("state_value") is None:
-            return {
-                "error": "Pair does not exist",
-                "token": token,
-                "base": base,
-            }
-
-        pair = pair_id["state_value"]
-
-        reserve0 = await get_state(f"con_pairs.pairs:{pair}:reserve0")
-        reserve1 = await get_state(f"con_pairs.pairs:{pair}:reserve1")
-
-        if isinstance(reserve0, str):
-            return reserve0
-        if isinstance(reserve1, str):
-            return reserve1
-
-        def as_reserve(result: dict) -> ContractingDecimal:
-            value = result["state_value"]
-            if isinstance(value, dict) and set(value) == {"__big_int__"}:
-                value = value["__big_int__"]
-            return ContractingDecimal(value)
-
-        r0, r1 = as_reserve(reserve0), as_reserve(reserve1)
-
-        if token_a == token:
-            price = r1 / r0 if r0 > 0 else 0
-        else:
-            price = r0 / r1 if r1 > 0 else 0
-
-        return normalize_for_transport(
-            {
-                "token": token,
-                "base": base,
-                "price": price,
-                "pair_id": pair,
-                "reserve_token": r0 if token_a == token else r1,
-                "reserve_base": r1 if token_a == token else r0,
-            }
-        )
-
+        return await _dex_price(token_contract.strip(), base_contract.strip())
     except Exception as ex:
         logger.error("Error getting DEX price", extra=exception_context(ex))
         return f"❌ Error getting DEX price: {str(ex)}"
+
+
+async def _dex_price(token: str, base: str) -> dict[str, Any] | str:
+    token_a, token_b = sorted((token, base))
+    pair_id = await get_state(f"con_pairs.toks_to_pair:{token_a}:{token_b}")
+    if isinstance(pair_id, str):
+        return pair_id
+    pair = pair_id.get("state_value")
+    if pair is None:
+        return f"❌ Error: No DEX pair exists for {token}/{base}"
+
+    reserves = [await get_state(f"con_pairs.pairs:{pair}:reserve{side}") for side in (0, 1)]
+    failures = [reserve for reserve in reserves if isinstance(reserve, str)]
+    if failures:
+        return failures[0]
+    reserve0, reserve1 = (_reserve_value(reserve) for reserve in reserves)
+    reserve_token, reserve_base = (reserve0, reserve1) if token_a == token else (reserve1, reserve0)
+    return normalize_for_transport(
+        {
+            "token": token,
+            "base": base,
+            "price": reserve_base / reserve_token if reserve_token > 0 else 0,
+            "pair_id": pair,
+            "reserve_token": reserve_token,
+            "reserve_base": reserve_base,
+        }
+    )
+
+
+def _reserve_value(result: dict[str, Any]) -> ContractingDecimal:
+    value = result["state_value"]
+    if isinstance(value, dict) and set(value) == {"__big_int__"}:
+        value = value["__big_int__"]
+    return ContractingDecimal(value)
 
 
 # === SUPPORTING HELPERS ===
@@ -2756,13 +2739,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] |
             f"{name} is disabled by default. Set {UNSAFE_WALLET_TOOLS_ENV}=1 "
             "to enable unsafe wallet/signing tools on a trusted local host."
         )
-    handler = TOOL_REGISTRY.get(name)
-    if handler is None:
-        return format_error_response(f"Unknown tool: {name}")
-
     with request_context(name):
         try:
-            result = await handler(**arguments)
+            result = await TOOL_REGISTRY[name](**arguments)
         except TypeError as ex:
             logger.warning(
                 "Invalid tool arguments",
@@ -2776,12 +2755,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] |
             )
             return format_error_response(str(ex))
 
+        try:
+            return _tool_result(name, result)
+        except TypeError as ex:
+            logger.error(
+                "Tool result has no transport encoding",
+                extra={**exception_context(ex), "tool": name, "reason": "unencodable_result"},
+            )
+            return format_error_response(f"{name}: {ex}")
+
+
+def _tool_result(name: str, result: Any) -> list[TextContent] | CallToolResult:
     if isinstance(result, str) and result.startswith("❌"):
         return format_error_response(f"{name}: {result[2:].strip()}")
     if isinstance(result, dict) and result.get("ok") is False:
         # DEX tools refuse with a structured {"ok": false, "error": ...} body.
         return CallToolResult(content=format_success_response(result), isError=True)
-
     return format_success_response(result)
 
 

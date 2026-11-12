@@ -122,14 +122,17 @@ Lists all token balances for an address.
 Sends tokens to another address.
 - `amount`: Exact decimal string (e.g., `"10.5"`) or integer
 - `token_contract`: "currency" or any token contract name
-- Returns transaction hash on success
+- Returns the CheckTx submission (`tx_hash`, `accepted`, `nonce`, chi); a
+  CheckTx rejection is a tool error (`isError: true`) carrying the node's reason
 - **Always confirm with user before executing**
 
 #### send_transaction(private_key, contract, function, kwargs)
 Generic transaction for any contract function.
 - `kwargs`: Dictionary of function parameters (can be string JSON)
 - Use for custom contract interactions
-- Returns transaction hash and result
+- Returns the CheckTx submission; a CheckTx rejection is a tool error
+  (`isError: true`) carrying the node's reason. Execution success is not known
+  yet: confirm it with `get_transaction(tx_hash)`
 
 #### get_transaction(tx_hash)
 Retrieves transaction details by hash.
@@ -228,6 +231,7 @@ Gets current price for a token pair.
 - `base_contract`: Usually "currency" (XIAN)
 - Returns: price, reserves, pair_id
 - Price is quoted as `token` per 1 `base`
+- A missing pair is a tool error (`isError: true`)
 
 #### buy_on_dex(private_key, buy_token, sell_token, amount, slippage=1, deadline_min=1.0)
 Buys tokens on the DEX.
@@ -397,9 +401,16 @@ Return strings with ❌ emoji and clear error message:
 "❌ Error: Insufficient balance"
 ```
 Over MCP, these strings and the DEX tools' `{"ok": false, "error": ...}` refusals
-come back as tool results with `isError: true`. A transaction submission is not
-an execution result: check `accepted`, then confirm execution with
-`get_transaction(tx_hash)`.
+come back as tool results with `isError: true`. `send_transaction`, `send_tokens`,
+`buy_on_dex` and `sell_on_dex` turn a CheckTx rejection (`accepted: false`) into
+such an error with the node's reason. An accepted submission is not an execution
+result: confirm execution with `get_transaction(tx_hash)`.
+
+Tool results are serialised explicitly (`serialization.normalize_for_transport`):
+JSON scalars, exact decimals as plain text, integers beyond 2^53 as
+`{"__big_int__": ...}`, contract times as `{"__time__"}`/`{"__delta__"}`,
+dataclasses, mappings and sequences. Any other type raises `TypeError`, which
+the server reports as a tool error instead of falling back to `str()`.
 
 ### User-Facing Language
 - Use clear, non-technical language when possible

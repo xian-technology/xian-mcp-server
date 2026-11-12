@@ -1570,3 +1570,240 @@ async def test_sell_preserves_requested_decimal_and_transport_precision(monkeypa
     _fixed_trade_bounds(monkeypatch)
     result = await sell_on_dex(private_key="1" * 64, sell_token="con_token", amount=amount)
     assert normalize_for_transport(result)["amount"] == amount
+
+
+def _rejected_submission(reason):
+    return TransactionSubmission.from_dict(
+        {
+            "submitted": True,
+            "accepted": False,
+            "finalized": False,
+            "tx_hash": "rejected",
+            "mode": "checktx",
+            "nonce": 0,
+            "chi_supplied": 138,
+            "chi_estimated": 120,
+            "message": reason,
+            "response": {"result": {"code": 1, "log": reason}},
+        }
+    )
+
+
+class _RejectingXianAsync:
+    reason = "sender has too few chi"
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+    async def send_tx(self, *_args, **_kwargs):
+        return _rejected_submission(self.reason)
+
+    async def send(self, *_args, **_kwargs):
+        return _rejected_submission(self.reason)
+
+
+class TestToolErrorFlags:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("tool", "arguments"),
+        [
+            (
+                "send_transaction",
+                {"contract": "currency", "function": "transfer", "kwargs": {"amount": 1}},
+            ),
+            ("send_tokens", {"to_address": TEST_RECEIVER_PUBLIC_KEY, "amount": "5"}),
+            ("buy_on_dex", {"buy_token": TEST_DEX_TOKEN, "amount": "1"}),
+            ("sell_on_dex", {"sell_token": TEST_DEX_TOKEN, "amount": "1"}),
+        ],
+    )
+    async def test_checktx_rejections_are_tool_errors_with_the_reason(
+        self, monkeypatch, tool, arguments
+    ):
+        monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
+        monkeypatch.setattr(xian_server, "XianAsync", _RejectingXianAsync)
+        _fixed_trade_bounds(monkeypatch)
+
+        result = await xian_server.call_tool(tool, {"private_key": TEST_PRIVATE_KEY, **arguments})
+
+        assert result.isError is True
+        assert result.content[0].text == (
+            f"Error: {tool}: Error: transaction rejected at CheckTx: sender has too few chi"
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_dex_pair_is_a_tool_error(self, monkeypatch):
+        async def fake_get_state(key):
+            return {"state_key": key, "state_value": None}
+
+        monkeypatch.setattr(xian_server, "get_state", fake_get_state)
+
+        result = await xian_server.call_tool(
+            "get_dex_price", {"token_contract": "con_token", "base_contract": "currency"}
+        )
+
+        assert result.isError is True
+        assert result.content[0].text == (
+            "Error: get_dex_price: Error: No DEX pair exists for con_token/currency"
+        )
+
+
+@dataclass(frozen=True)
+class _Quote:
+    amount: Decimal
+    raw: dict
+
+
+class TestExplicitTransport:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, None),
+            (True, True),
+            (7, 7),
+            (2**60, {"__big_int__": str(2**60)}),
+            (1.5, 1.5),
+            ("text", "text"),
+            (Decimal("1E+3"), "1000"),
+            ((1, "a"), [1, "a"]),
+            ({"k": [Decimal("0.10")]}, {"k": ["0.1"]}),
+            (_Quote(amount=Decimal("2.50"), raw={"x": 1}), {"amount": "2.5"}),
+        ],
+    )
+    def test_every_supported_type_has_an_explicit_encoding(self, value, expected):
+        assert normalize_for_transport(value) == expected
+
+    @pytest.mark.parametrize("value", [object(), b"bytes", {"nested": object()}])
+    def test_unknown_types_fail_loudly_instead_of_becoming_str(self, value):
+        with pytest.raises(TypeError, match="no MCP transport encoding"):
+            format_success_response(value)
+
+    @pytest.mark.asyncio
+    async def test_unserialisable_tool_results_are_tool_errors(self, monkeypatch):
+        class Opaque:
+            pass
+
+        async def handler():
+            return {"value": Opaque()}
+
+        monkeypatch.setitem(xian_server.TOOL_REGISTRY, "get_bds_status", handler)
+
+        result = await xian_server.call_tool("get_bds_status", {})
+
+        assert result.isError is True
+        assert "no MCP transport encoding for Opaque" in result.content[0].text
+
+
+def _pair_state(states):
+    async def fake_get_state(key):
+        return states[key]
+
+    return fake_get_state
+
+
+class TestDexPrice:
+    @pytest.mark.asyncio
+    async def test_price_is_quoted_per_token_when_token_sorts_first(self, monkeypatch):
+        monkeypatch.setattr(
+            xian_server,
+            "get_state",
+            _pair_state(
+                {
+                    "con_pairs.toks_to_pair:con_a:con_b": {"state_value": 3},
+                    "con_pairs.pairs:3:reserve0": {"state_value": Decimal("4")},
+                    "con_pairs.pairs:3:reserve1": {"state_value": {"__big_int__": "10"}},
+                }
+            ),
+        )
+
+        result = await get_dex_price("con_a", "con_b")
+
+        assert result == {
+            "token": "con_a",
+            "base": "con_b",
+            "price": "2.5",
+            "pair_id": 3,
+            "reserve_token": "4",
+            "reserve_base": "10",
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_token_reserve_prices_at_zero(self, monkeypatch):
+        monkeypatch.setattr(
+            xian_server,
+            "get_state",
+            _pair_state(
+                {
+                    "con_pairs.toks_to_pair:con_a:con_b": {"state_value": 3},
+                    "con_pairs.pairs:3:reserve0": {"state_value": 0},
+                    "con_pairs.pairs:3:reserve1": {"state_value": 5},
+                }
+            ),
+        )
+
+        result = await get_dex_price("con_a", "con_b")
+
+        assert result["price"] == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failing",
+        [
+            "con_pairs.toks_to_pair:con_a:con_b",
+            "con_pairs.pairs:3:reserve0",
+            "con_pairs.pairs:3:reserve1",
+        ],
+    )
+    async def test_state_read_failures_are_returned(self, monkeypatch, failing):
+        states = {
+            "con_pairs.toks_to_pair:con_a:con_b": {"state_value": 3},
+            "con_pairs.pairs:3:reserve0": {"state_value": 1},
+            "con_pairs.pairs:3:reserve1": {"state_value": 1},
+            failing: "❌ Error: state unavailable",
+        }
+        monkeypatch.setattr(xian_server, "get_state", _pair_state(states))
+
+        assert await get_dex_price("con_a", "con_b") == "❌ Error: state unavailable"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_failures_become_error_text(self, monkeypatch):
+        async def broken(_key):
+            raise RuntimeError("node down")
+
+        monkeypatch.setattr(xian_server, "get_state", broken)
+
+        assert await get_dex_price("con_a") == "❌ Error getting DEX price: node down"
+        assert await get_dex_price("  ") == "❌ Error: Token contract is required"
+
+
+class TestCallToolFailures:
+    @pytest.mark.asyncio
+    async def test_unknown_tool(self):
+        result = await xian_server.call_tool("no_such_tool", {})
+
+        assert result.isError is True
+        assert result.content[0].text == "Error: Unknown tool: no_such_tool"
+
+    @pytest.mark.asyncio
+    async def test_invalid_arguments(self):
+        result = await xian_server.call_tool("get_bds_status", {"unexpected": 1})
+
+        assert result.isError is True
+        assert result.content[0].text.startswith("Error: Invalid arguments for get_bds_status:")
+
+    @pytest.mark.asyncio
+    async def test_handler_exceptions(self, monkeypatch):
+        async def handler():
+            raise RuntimeError("boom")
+
+        monkeypatch.setitem(xian_server.TOOL_REGISTRY, "get_bds_status", handler)
+
+        result = await xian_server.call_tool("get_bds_status", {})
+
+        assert result.isError is True
+        assert result.content[0].text == "Error: boom"
