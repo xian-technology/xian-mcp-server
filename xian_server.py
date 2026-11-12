@@ -1605,17 +1605,14 @@ async def _helper_trade(
 
     bound_name = bounds.pop("bound_name")
     bound = bounds.pop("bound")
-    tokens = (
-        {"buy_token": buy_token, "sell_token": sell_token}
-        if side == "buy"
-        else {"sell_token": sell_token, "buy_token": buy_token}
-    )
+    # Signed payloads use sorted keys, so kwargs order carries no meaning.
     result = await send_transaction(
         private_key=private_key,
         contract="con_dex_helper",
         function=side,
         kwargs={
-            **tokens,
+            "sell_token": sell_token,
+            "buy_token": buy_token,
             "amount": amount_value,
             bound_name: bound,
             "deadline": _deadline_value(minutes_from_now=deadline_min),
@@ -1629,6 +1626,53 @@ async def _helper_trade(
     return result
 
 
+# side -> (debug log template, verb for unexpected failures)
+_HELPER_TRADE_WORDING = {
+    "buy": ("Buying %s %s with %s", "buying"),
+    "sell": ("Selling %s %s for %s", "selling"),
+}
+
+
+async def _requested_helper_trade(
+    *,
+    side: str,
+    private_key: str,
+    sell_token: str,
+    buy_token: str,
+    amount: str | int,
+    slippage: str | int,
+    deadline_min: float,
+) -> dict[str, Any] | str:
+    """Check a buy/sell tool request, then run it; failures become error text.
+
+    The traded token (bought or sold) is checked before the counter token.
+    """
+    traded, counter = ("Buy", buy_token), ("Sell", sell_token)
+    if side == "sell":
+        traded, counter = counter, traded
+    if not private_key.strip():
+        return "❌ Error: Private key is required"
+    for label, token in (traded, counter):
+        if not token.strip():
+            return f"❌ Error: {label} token contract is required"
+
+    log_template, verb = _HELPER_TRADE_WORDING[side]
+    logger.debug(log_template, amount, traded[1], counter[1])
+    try:
+        return await _helper_trade(
+            side=side,
+            private_key=private_key,
+            sell_token=sell_token.strip(),
+            buy_token=buy_token.strip(),
+            amount=amount,
+            slippage=slippage,
+            deadline_min=deadline_min,
+        )
+    except Exception as ex:
+        logger.error(f"Error {verb} on DEX", extra=exception_context(ex))
+        return f"❌ Error {verb} on DEX: {str(ex)}"
+
+
 async def buy_on_dex(
     private_key: str = "",
     buy_token: str = "",
@@ -1638,27 +1682,15 @@ async def buy_on_dex(
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
     """Buy an exact output amount; the signed max_input bounds the price."""
-    if not private_key.strip():
-        return "❌ Error: Private key is required"
-    if not buy_token.strip():
-        return "❌ Error: Buy token contract is required"
-    if not sell_token.strip():
-        return "❌ Error: Sell token contract is required"
-
-    logger.debug("Buying %s %s with %s", amount, buy_token, sell_token)
-    try:
-        return await _helper_trade(
-            side="buy",
-            private_key=private_key,
-            sell_token=sell_token.strip(),
-            buy_token=buy_token.strip(),
-            amount=amount,
-            slippage=slippage,
-            deadline_min=deadline_min,
-        )
-    except Exception as ex:
-        logger.error("Error buying on DEX", extra=exception_context(ex))
-        return f"❌ Error buying on DEX: {str(ex)}"
+    return await _requested_helper_trade(
+        side="buy",
+        private_key=private_key,
+        sell_token=sell_token,
+        buy_token=buy_token,
+        amount=amount,
+        slippage=slippage,
+        deadline_min=deadline_min,
+    )
 
 
 async def sell_on_dex(
@@ -1670,27 +1702,15 @@ async def sell_on_dex(
     deadline_min: float = 1.0,
 ) -> dict[str, Any] | str:
     """Sell an exact input amount; the signed min_out bounds the price."""
-    if not private_key.strip():
-        return "❌ Error: Private key is required"
-    if not sell_token.strip():
-        return "❌ Error: Sell token contract is required"
-    if not buy_token.strip():
-        return "❌ Error: Buy token contract is required"
-
-    logger.debug("Selling %s %s for %s", amount, sell_token, buy_token)
-    try:
-        return await _helper_trade(
-            side="sell",
-            private_key=private_key,
-            sell_token=sell_token.strip(),
-            buy_token=buy_token.strip(),
-            amount=amount,
-            slippage=slippage,
-            deadline_min=deadline_min,
-        )
-    except Exception as ex:
-        logger.error("Error selling on DEX", extra=exception_context(ex))
-        return f"❌ Error selling on DEX: {str(ex)}"
+    return await _requested_helper_trade(
+        side="sell",
+        private_key=private_key,
+        sell_token=sell_token,
+        buy_token=buy_token,
+        amount=amount,
+        slippage=slippage,
+        deadline_min=deadline_min,
+    )
 
 
 async def get_dex_price(
