@@ -1963,6 +1963,13 @@ _ACCOUNT_INDEX_SCHEMA = {
 }
 ToolHandler = Callable[..., Awaitable[Any]]
 
+# The submitting tools return at CheckTx; the description is all a client sees.
+SUBMISSION_NOTE = (
+    " Returns once the node accepts the transaction (CheckTx), before execution: "
+    "confirm the outcome with get_transaction(tx_hash). A transaction that fails "
+    "in execution still pays its fee."
+)
+
 TOOL_SPECS: List[dict[str, Any]] = [
     {
         "name": "create_wallet",
@@ -2392,7 +2399,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "send_transaction",
-        "description": "Send a transaction to execute a smart contract function",
+        "description": "Send a transaction to execute a smart contract function." + SUBMISSION_NOTE,
         "schema": {
             "type": "object",
             "properties": {
@@ -2418,7 +2425,7 @@ TOOL_SPECS: List[dict[str, Any]] = [
     },
     {
         "name": "send_tokens",
-        "description": "Send tokens from one address to another",
+        "description": "Send tokens from one address to another." + SUBMISSION_NOTE,
         "schema": {
             "type": "object",
             "properties": {
@@ -2541,7 +2548,8 @@ TOOL_SPECS: List[dict[str, Any]] = [
             "The server quotes the direct pair and signs max_input = quoted input plus "
             "slippage; the trade reverts if the input would exceed it. Requires a "
             "sell_token allowance to con_dex_helper of at least max_input."
-        ),
+        )
+        + SUBMISSION_NOTE,
         "schema": {
             "type": "object",
             "properties": {
@@ -2585,7 +2593,8 @@ TOOL_SPECS: List[dict[str, Any]] = [
             "The server quotes the direct pair and signs min_out = quoted output minus "
             "slippage; the trade reverts if the received output would be lower. Requires "
             "a sell_token allowance to con_dex_helper of at least amount."
-        ),
+        )
+        + SUBMISSION_NOTE,
         "schema": {
             "type": "object",
             "properties": {

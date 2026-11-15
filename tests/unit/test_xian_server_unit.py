@@ -1498,6 +1498,21 @@ class TestTransportSerialization:
         assert normalized == {"value": 1}
 
 
+class TestSubmissionToolDescriptions:
+    @pytest.mark.asyncio
+    async def test_checktx_tools_tell_the_client_to_confirm_execution(self, monkeypatch):
+        # These tools return the CheckTx submission, not the execution result:
+        # the description is all an MCP client sees, so it must say so.
+        monkeypatch.setenv("XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS", "1")
+
+        tools = {tool.name: tool for tool in await xian_server.list_tools()}
+
+        for name in ("send_transaction", "send_tokens", "buy_on_dex", "sell_on_dex"):
+            description = tools[name].description
+            assert "before execution" in description, name
+            assert "get_transaction" in description, name
+
+
 class TestUnsafeToolGating:
     @pytest.mark.asyncio
     async def test_list_tools_hides_unsafe_tools_by_default(self, monkeypatch):
