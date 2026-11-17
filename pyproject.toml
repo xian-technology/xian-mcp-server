@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xian-mcp-server"
-version = "0.1.1"
+version = "0.1.2"
 description = "MCP and HTTP server for interacting with the Xian blockchain"
 readme = "README.md"
 license = "MIT"
@@ -60,11 +60,6 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["F", "I"]
 
-# Standalone builds use release-candidate source revisions until the V2 SDK
-# packages are published. Ignore sibling-only editable sources in their metadata.
+# Standalone builds resolve published packages without sibling source overrides.
 [tool.uv]
 no-sources = true
-override-dependencies = [
-  "xian-tech-py[eth,hd] @ git+https://github.com/xian-technology/xian-py@2a3cd927f3f18e4e7f3d0aefdbf11457d83acd8e",
-  "xian-tech-runtime-types @ git+https://github.com/xian-technology/xian-contracting@12b1c31f98d535a278b0c00e40dd90584f6b52f4#subdirectory=packages/xian-runtime-types",
-]

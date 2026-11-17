@@ -56,10 +56,8 @@ CMD ["xian-mcp-server"]
 
 FROM base AS pypi
 
-# Reproduce the standalone CLI and CI environment, including the pinned SDK sources.
+# Reproduce the standalone CLI and CI environment, including the pinned published SDK packages.
 COPY uv.lock .
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
 ENV PATH="/app/.venv/bin:${PATH}"
 RUN uv sync --frozen --no-dev --no-editable --no-cache
 
