@@ -193,7 +193,8 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 - **Two transports, one tool catalog.** Stdio MCP and HTTP REST expose the
   exact same tools and schemas. The transport is a thin shell.
 - **AI-friendly safety conventions.** Errors return human-readable strings.
-  Private keys are never logged or echoed in responses. Confirmation is
+  Diagnostics omit private keys. Unsafe wallet creation/import tools return
+  secret material by design; protect their results. Confirmation is
   expected for any value-moving operation; see [CLAUDE.md](CLAUDE.md).
 - **`xian-tech-py` is the only SDK.** All blockchain interactions go
   through `xian-tech-py`'s sync / async clients. Live DEX waits use its
