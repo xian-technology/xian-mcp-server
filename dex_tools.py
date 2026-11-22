@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_DOWN, Decimal, localcontext
 from typing import Any
@@ -18,8 +19,13 @@ from xian_py.transaction import simulate_tx_async
 from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 
 from dex_plan_registry import ClaimedPlan, PlanRegistry
-from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
-from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL
+from serialization import (
+    AMOUNT_SCHEMA,
+    MAX_SAFE_JSON_INTEGER,
+    exact_amount,
+    normalize_for_transport,
+)
+from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL, fetch_graphql
 
 PAIRS_CONTRACT = "con_pairs"
 ROUTER_CONTRACT = "con_dex"
@@ -1218,42 +1224,47 @@ async def dex_wait_live_event(
         return _error(f"Unable to wait for live DEX event: {exc}")
 
 
+def _dex_event_sources(contract: str, event: str) -> list[tuple[str, str]]:
+    if contract and contract not in DEX_EVENTS:
+        if not event:
+            raise ValueError("An event is required for an LP token contract")
+        return [(contract, event)]
+    sources = [
+        (name, event_name)
+        for name, events in DEX_EVENTS.items()
+        for event_name in events
+        if (not contract or name == contract) and (not event or event_name == event)
+    ]
+    if not sources:
+        raise ValueError("Unknown DEX event for the selected contract")
+    return sources
+
+
+def _event_sequence(event: Any) -> int:
+    if isinstance(event, Mapping):
+        return int(event.get("id") or event.get("event_id") or 0)
+    return int(event.id)
+
+
+def _event_cursor(value: int | None) -> int | str | None:
+    if value is not None and value > MAX_SAFE_JSON_INTEGER:
+        return str(value)
+    return value
+
+
 async def dex_list_events(
     contract: str = "",
     event: str = "",
     limit: int = 100,
-    after_id: int | None = None,
+    after_id: int | str | None = None,
 ) -> dict[str, Any] | str:
     """List canonical DEX events, optionally across pair/router contracts."""
     try:
         limit = _positive_int(limit, field="Limit")
         if limit > 500:
             return _error("Limit must not exceed 500")
-        if after_id is not None:
-            after_id = _non_negative_int(after_id, field="After id")
-        contract = contract.strip()
-        event = event.strip()
-        if contract:
-            known = DEX_EVENTS.get(contract)
-            if known is None:
-                # LP token contracts are accepted only with an explicit event.
-                if not event:
-                    return _error("An event is required for an LP token contract")
-                sources = [(contract, event)]
-            elif event:
-                if event not in known:
-                    return _error(f"{event} is not declared by {contract}")
-                sources = [(contract, event)]
-            else:
-                sources = [(contract, name) for name in known]
-        elif event:
-            sources = [(name, event) for name, events in DEX_EVENTS.items() if event in events]
-            if not sources:
-                return _error("Unknown canonical DEX event; provide its LP token contract")
-        else:
-            sources = [
-                (name, event_name) for name, events in DEX_EVENTS.items() for event_name in events
-            ]
+        cursor = None if after_id is None else _non_negative_int(after_id, field="After id")
+        sources = _dex_event_sources(contract.strip(), event.strip())
         async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
             batches = await asyncio.gather(
                 *(
@@ -1262,40 +1273,90 @@ async def dex_list_events(
                         source_event,
                         limit=limit,
                         offset=0,
-                        after_id=after_id,
+                        after_id=cursor,
                     )
                     for source_contract, source_event in sources
                 ),
                 return_exceptions=True,
             )
-        failures = [str(batch) for batch in batches if isinstance(batch, Exception)]
-        items = [
-            normalize_for_transport(item)
-            for batch in batches
-            if not isinstance(batch, Exception)
-            for item in batch
-        ]
-        items.sort(key=lambda item: int(item.get("id") or item.get("event_id") or 0))
-        items = items[:limit]
-        cursor_values = [int(item.get("id") or item.get("event_id") or 0) for item in items]
+        successful = [batch for batch in batches if not isinstance(batch, Exception)]
+        complete = len(successful) == len(sources)
+        items = sorted(
+            (item for batch in successful for item in batch),
+            key=_event_sequence,
+            reverse=cursor is None,
+        )[:limit]
+        next_cursor = max(map(_event_sequence, items)) if items and complete else cursor
         return {
-            "available": len(failures) < len(batches),
-            "items": items,
+            "available": bool(successful),
+            "complete": complete,
+            "items": normalize_for_transport(items),
             "count": len(items),
             "sources": [{"contract": name, "event": name_event} for name, name_event in sources],
-            "after_id": after_id,
-            "next_after_id": max(cursor_values) if cursor_values else after_id,
+            "after_id": _event_cursor(cursor),
+            "next_after_id": _event_cursor(next_cursor),
             "warnings": (
                 [
                     "Some or all indexed DEX event sources are unavailable; run a BDS-enabled node "
                     "or configure its GraphQL index."
                 ]
-                if failures
+                if not complete
                 else []
             ),
         }
     except Exception as exc:
         return _error(f"Unable to list DEX events: {exc}")
+
+
+async def dex_market_history(
+    token_a: str,
+    token_b: str,
+    limit: int = 50,
+    after: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    interval_seconds: int = 60,
+    candle_before: str | None = None,
+) -> dict[str, Any] | str:
+    """Look up a token pair and return one indexed page of fills and candles."""
+    query = """
+    query DexMarketHistory(
+      $a: String!, $b: String!, $limit: Int!, $after: Cursor,
+      $start: Datetime, $end: Datetime, $interval: Int!, $before: Datetime
+    ) {
+      dexMarket(tokenA: $a, tokenB: $b) {
+        pairId token0 token1 indexedHeight
+        trades(first: $limit, after: $after, startTime: $start, endTime: $end) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            eventId txHash txIndex eventIndex blockHeight blockTime
+            amount0In amount1In amount0Out amount1Out
+          }
+        }
+        candles(intervalSeconds: $interval, pageSize: $limit, before: $before) {
+          nextBefore
+          items { bucketStart bucketEnd open high low close volumeToken0 volumeToken1 tradeCount }
+        }
+      }
+    }
+    """
+    try:
+        data = await fetch_graphql(
+            query,
+            {
+                "a": token_a,
+                "b": token_b,
+                "limit": limit,
+                "after": after,
+                "start": start,
+                "end": end,
+                "interval": interval_seconds,
+                "before": candle_before,
+            },
+        )
+        return {"market": data["dexMarket"]}
+    except Exception as exc:
+        return _error(f"Unable to read DEX market history: {exc}")
 
 
 _PATH_SCHEMA = {"type": "array", "items": {"type": "integer"}, "minItems": 1}
@@ -1533,10 +1594,34 @@ DEX_TOOL_SPECS: list[dict[str, Any]] = [
                 "contract": {"type": "string"},
                 "event": {"type": "string"},
                 "limit": {"type": "integer", "default": 100},
-                "after_id": {"type": "integer"},
+                "after_id": {"type": ["integer", "string"]},
             },
             "required": [],
         },
         "handler": dex_list_events,
+    },
+    {
+        "name": "dex_market_history",
+        "description": "Get indexed pool fills and OHLCV by two token contracts, in either order",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "token_a": {"type": "string"},
+                "token_b": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "after": {"type": "string", "description": "Previous trade pageInfo.endCursor"},
+                "start": {"type": "string", "description": "Inclusive ISO-8601 time for fills"},
+                "end": {"type": "string", "description": "Exclusive ISO-8601 time for fills"},
+                "interval_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 604800,
+                    "default": 60,
+                },
+                "candle_before": {"type": "string", "description": "Previous candles.nextBefore"},
+            },
+            "required": ["token_a", "token_b"],
+        },
+        "handler": dex_market_history,
     },
 ]

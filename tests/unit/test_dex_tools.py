@@ -499,6 +499,44 @@ async def test_dex_events_report_unavailable_index_as_structured_json(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_dex_event_pages_preserve_the_cursor_on_partial_failure(monkeypatch):
+    class FakeXian:
+        fail_swaps = False
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_events(self, contract, event, *, limit, offset, after_id):
+            if event == "Swap" and self.fail_swaps:
+                raise RuntimeError("temporary failure")
+            ids = {"Swap": [101, 104], "Sync": [102, 103]}.get(event, [])
+            page = ids[::-1] if after_id is None else [i for i in ids if i > after_id]
+            return [{"id": i} for i in page[:limit]]
+
+    monkeypatch.setattr(dex_tools, "XianAsync", FakeXian)
+    newest = await dex_tools.dex_list_events(contract="con_pairs", limit=2)
+    assert [item["id"] for item in newest["items"]] == [104, 103]
+
+    FakeXian.fail_swaps = True
+    partial = await dex_tools.dex_list_events(contract="con_pairs", limit=2, after_id=100)
+    assert partial["warnings"]
+    assert partial["next_after_id"] == 100
+
+    FakeXian.fail_swaps = False
+    retry = await dex_tools.dex_list_events(
+        contract="con_pairs", limit=2, after_id=partial["next_after_id"]
+    )
+    assert [item["id"] for item in retry["items"]] == [101, 102]
+    assert retry["next_after_id"] == 102
+
+
+@pytest.mark.asyncio
 async def test_dex_wait_live_event_uses_websocket_without_bds_and_filters(monkeypatch):
     class FakeXian:
         def __init__(self, *args, **kwargs):

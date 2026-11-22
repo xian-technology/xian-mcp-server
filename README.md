@@ -212,7 +212,14 @@ server that uses the `TOOL_SPECS` pattern; see the source for the
 | Contracts / state  | `get_contract_source`, `get_state`                                                                                              |
 | Token discovery    | `get_token_contract_by_symbol`, `get_token_data_by_contract`                                                             |
 | DEX discovery / planning | `dex_list_pairs`, `dex_get_pair`, `dex_quote_exact_in`, `dex_quote_exact_out`, `dex_plan_swap`, `dex_plan_add_liquidity`, `dex_plan_remove_liquidity` |
-| DEX events        | `dex_wait_live_event` for bounded low-latency waits without BDS; `dex_list_events` for durable history and restart-safe cursors |
+| DEX events        | `dex_wait_live_event` for bounded low-latency waits; `dex_list_events` for indexed history and replay |
+| DEX market data   | `dex_market_history` resolves two token contracts and returns indexed pool fills and OHLCV from `XIAN_GRAPHQL` |
+
+`dex_list_events` returns newest-first events for browsing. Start replay
+with `after_id: 0` or an existing cursor to get ascending events. Commit
+`next_after_id` only for a response with `complete: true`. A partial
+response retains the input cursor so a temporary source failure can be
+retried. Wide cursors are returned as decimal strings.
 | DEX submission     | `dex_submit_swap`, `dex_submit_add_liquidity`, `dex_submit_remove_liquidity`; legacy single-pair helpers: `buy_on_dex`, `sell_on_dex` |
 | Indexed / BDS      | `get_bds_status`, `get_developer_rewards`, `list_blocks`, `get_block`, `get_block_by_hash`, `get_indexed_tx`, `list_txs_for_block`, `list_txs_by_sender`, `list_txs_by_contract`, `get_events_for_tx`, `list_events`, `get_state_history`, `get_state_for_tx`, `get_state_for_block` |
 | Shielded sync      | `list_shielded_output_tags`, `list_shielded_wallet_history`                                                              |

@@ -17,6 +17,7 @@ import json
 import logging
 import os
 from collections import defaultdict
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Context, Decimal
 from typing import Any, Awaitable, Callable, Dict, List
@@ -35,12 +36,11 @@ import dex_tools
 from dex_tools import DEX_TOOL_SPECS
 from logging_setup import configure_logging, exception_context, request_context
 from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
-from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL
+from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL, fetch_graphql
 
 logger = logging.getLogger("xian-server")
 
 # Configuration
-GRAPHQL = os.environ.get("XIAN_GRAPHQL", "http://127.0.0.1:5000/graphql")
 UNSAFE_WALLET_TOOLS_ENV = "XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS"
 
 # === MCP APP INITIALIZATION ===
@@ -234,8 +234,8 @@ def _graphql_state_change_node_to_dict(node: dict[str, Any]) -> dict[str, Any]:
         "key": node.get("key"),
         "value": _decode_graphql_state_value(node.get("newValue")),
         "tx_hash": node.get("txHash"),
-        "block_height": (
-            _decode_graphql_int(tx.get("blockHeight")) if isinstance(tx, dict) else None
+        "block_height": _decode_graphql_int(
+            node.get("blockHeight", tx.get("blockHeight") if isinstance(tx, dict) else None)
         ),
         "created": node.get("createdAt"),
     }
@@ -283,9 +283,7 @@ key
 newValue
 txHash
 createdAt
-transactionByTxHash {
-  blockHeight
-}
+blockHeight
 """
 
 
@@ -372,44 +370,31 @@ async def _graphql_get_state_for_block(
     block_ref: str | int,
 ) -> list[dict[str, Any]]:
     if isinstance(block_ref, int):
-        tx_condition: dict[str, Any] = {"blockHeight": block_ref}
+        state_filter: dict[str, Any] = {"blockHeight": {"equalTo": str(block_ref)}}
     else:
-        tx_condition = {"blockHash": block_ref.removeprefix("0x").lower()}
+        state_filter = {
+            "blockByBlockHeight": {"blockHash": {"equalTo": block_ref.removeprefix("0x").lower()}}
+        }
 
     query = f"""
-    query StateForBlock($condition: TransactionCondition!) {{
-      allTransactions(
-        first: 250
-        orderBy: BLOCK_HEIGHT_DESC
-        condition: $condition
+    query StateForBlock($filter: StateChangeFilter!, $after: Cursor) {{
+      allStateChanges(
+        first: 500
+        after: $after
+        orderBy: [TX_INDEX_ASC, WRITE_INDEX_ASC]
+        filter: $filter
       ) {{
+        pageInfo {{ hasNextPage endCursor }}
         nodes {{
-          stateChangesByTxHash(first: 1000, orderBy: CHANGE_ID_ASC) {{
-            nodes {{
-              {_GRAPHQL_STATE_CHANGE_FIELDS}
-            }}
-          }}
+          {_GRAPHQL_STATE_CHANGE_FIELDS}
         }}
       }}
     }}
     """
-    data = await fetch_graphql(query=query, variables={"condition": tx_condition})
-    tx_nodes = data.get("allTransactions", {}).get("nodes", [])
-    changes: list[dict[str, Any]] = []
-    for tx_node in tx_nodes:
-        if not isinstance(tx_node, dict):
-            continue
-        state_nodes = (
-            tx_node.get("stateChangesByTxHash", {}).get("nodes", [])
-            if isinstance(tx_node.get("stateChangesByTxHash"), dict)
-            else []
-        )
-        changes.extend(
-            _graphql_state_change_node_to_dict(node)
-            for node in state_nodes
-            if isinstance(node, dict)
-        )
-    return changes
+    return [
+        _graphql_state_change_node_to_dict(node)
+        async for node in _graphql_nodes(query, "allStateChanges", filter=state_filter)
+    ]
 
 
 async def _graphql_get_contract_source(contract_name: str) -> str | None:
@@ -1517,6 +1502,7 @@ async def get_token_data_by_contract(token_contract: str = "") -> dict[str, Any]
       $symbol: String!,
       $website: String!) {
       tokenStates: allStates(
+        first: 5
         filter: {
           or: [
             { key: { equalTo: $operator } },
@@ -1870,16 +1856,35 @@ async def _bds_get_token_data(contract: str) -> dict[str, Any]:
     return {"tokenStates": {"nodes": nodes}}
 
 
+async def _graphql_nodes(query: str, field: str, **variables: Any) -> AsyncIterator[dict[str, Any]]:
+    after = None
+    while True:
+        result = await fetch_graphql(query, variables={**variables, "after": after})
+        connection = result[field]
+        for node in connection["nodes"]:
+            yield node
+        page_info = connection["pageInfo"]
+        if not page_info["hasNextPage"]:
+            return
+        next_cursor = page_info["endCursor"]
+        if not next_cursor or next_cursor == after:
+            raise ValueError(f"GraphQL returned an invalid cursor for {field}")
+        after = next_cursor
+
+
 async def get_tokens() -> list[dict]:
     """Get all tokens with their contract name and symbol."""
     query = """
-    query GetTokenContractsWithSymbols {
+    query GetTokenContractsWithSymbols($after: Cursor) {
       tokenSymbols: allStates(
+        first: 500
+        after: $after
         filter: {
           key: { endsWith: ".metadata:token_symbol" }
         }
         orderBy: KEY_ASC
       ) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           key
           value
@@ -1889,67 +1894,17 @@ async def get_tokens() -> list[dict]:
     """
 
     try:
-        data = await fetch_graphql(query=query)
-
-        tokens: list[dict[str, str]] = []
-        for node in data["tokenSymbols"]["nodes"]:
-            contract = node["key"].split(".metadata:token_symbol")[0]
-            tokens.append(
-                {
-                    "token_contract": contract.lower(),
-                    "token_symbol": str(node["value"]).upper(),
-                }
-            )
-
-        return tokens
+        return [
+            {
+                "token_contract": node["key"].split(".metadata:token_symbol")[0].lower(),
+                "token_symbol": str(node["value"]).upper(),
+            }
+            async for node in _graphql_nodes(query, "tokenSymbols")
+        ]
 
     except Exception as ex:
         logger.error("Error getting tokens", extra=exception_context(ex))
         raise
-
-
-async def fetch_graphql(
-    query: str,
-    variables: dict | None = None,
-    endpoint: str | None = None,
-    headers: dict | None = None,
-    timeout: float = 5.0,
-) -> dict:
-    """
-    Execute a GraphQL query and return the results.
-    """
-    variables = variables or {}
-    endpoint = endpoint or GRAPHQL
-
-    default_headers = {"Content-Type": "application/json"}
-    if headers:
-        default_headers.update(headers)
-
-    payload = {"query": query, "variables": variables}
-
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                endpoint,
-                json=payload,
-                headers=default_headers,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as response:
-                response.raise_for_status()
-                result = await response.json()
-
-                if "errors" in result:
-                    error_msg = ", ".join(err.get("message", str(err)) for err in result["errors"])
-                    raise Exception(f"GraphQL errors: {error_msg}")
-
-                return result.get("data", {})
-
-        except aiohttp.ClientError as ex:
-            logger.error("HTTP error fetching GraphQL", extra=exception_context(ex))
-            raise Exception(f"Failed to fetch GraphQL: {str(ex)}")
-        except Exception as ex:
-            logger.error("Error fetching GraphQL", extra=exception_context(ex))
-            raise
 
 
 # === MCP TOOL REGISTRATION ===

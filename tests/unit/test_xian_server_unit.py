@@ -323,6 +323,7 @@ class TestTokenGraphQL:
             assert ".metadata:token_symbol" in query
             assert "allContracts" not in query
             assert "xsc0001" not in query
+            assert _kwargs["variables"] == {"after": None}
             return {
                 "tokenSymbols": {
                     "nodes": [
@@ -330,7 +331,8 @@ class TestTokenGraphQL:
                             "key": "currency.metadata:token_symbol",
                             "value": "XIAN",
                         }
-                    ]
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": "currency"},
                 }
             }
 
@@ -758,6 +760,35 @@ class TestCompatibilityRegressions:
                 "created": "2026-05-21T14:00:00+00:00",
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_graphql_state_for_block_reads_each_bounded_page(self, monkeypatch):
+        cursors = []
+
+        async def fake_fetch_graphql(query, variables):
+            assert "first: 500" in query
+            assert variables["filter"] == {
+                "blockByBlockHeight": {"blockHash": {"equalTo": "block-100"}}
+            }
+            cursors.append(variables["after"])
+            first_page = variables["after"] is None
+            return {
+                "allStateChanges": {
+                    "nodes": [{"key": "first" if first_page else "second", "blockHeight": "100"}],
+                    "pageInfo": {
+                        "hasNextPage": first_page,
+                        "endCursor": "next" if first_page else "done",
+                    },
+                }
+            }
+
+        monkeypatch.setattr(xian_server, "fetch_graphql", fake_fetch_graphql)
+        rows = await xian_server._graphql_get_state_for_block("block-100")
+        assert [(row["key"], row["block_height"]) for row in rows] == [
+            ("first", 100),
+            ("second", 100),
+        ]
+        assert cursors == [None, "next"]
 
     @pytest.mark.asyncio
     async def test_graphql_developer_rewards_use_current_schema(self, monkeypatch):
