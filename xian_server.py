@@ -35,7 +35,7 @@ from xian_runtime_types.decimal import ContractingDecimal, canonical_fixed
 import dex_tools
 from dex_tools import DEX_TOOL_SPECS
 from logging_setup import configure_logging, exception_context, request_context
-from serialization import AMOUNT_SCHEMA, exact_amount, normalize_for_transport
+from serialization import AMOUNT_SCHEMA, exact_amount, include_raw_payloads, normalize_for_transport
 from xian_connection import CHAIN_ID, CLIENT_CONFIG, NODE_URL, fetch_graphql
 
 logger = logging.getLogger("xian-server")
@@ -106,19 +106,17 @@ def _normalize_block_ref(block_ref: str | int | None) -> str | int:
     return _parse_positive_int(block_ref, field="Block reference")
 
 
-def _include_raw_payloads() -> bool:
-    value = os.environ.get("XIAN_INCLUDE_RAW", "").strip().lower()
-    return value in {"1", "true", "yes", "on"}
-
-
 def _repair_indexed_payload(value: Any, *, include_raw: bool) -> Any:
     if isinstance(value, list):
         return [_repair_indexed_payload(item, include_raw=include_raw) for item in value]
     if not isinstance(value, dict):
         return value
 
-    for item in value.values():
-        _repair_indexed_payload(item, include_raw=include_raw)
+    # Indexed wrappers can nest rows. Their state values and event data are
+    # contract-owned dictionaries and keep all their fields.
+    for field in ("events", "items"):
+        if isinstance(value.get(field), list):
+            _repair_indexed_payload(value[field], include_raw=include_raw)
 
     raw = value.get("raw")
     if isinstance(raw, dict):
@@ -133,7 +131,7 @@ async def _call_indexed_read(method_name: str, /, *args: Any, **kwargs: Any) -> 
     async with XianAsync(NODE_URL, chain_id=CHAIN_ID, config=CLIENT_CONFIG) as xian:
         method = getattr(xian, method_name)
         result = await method(*args, **kwargs)
-        include_raw = _include_raw_payloads()
+        include_raw = include_raw_payloads()
         normalized = normalize_for_transport(result, include_raw=True)
         return _repair_indexed_payload(normalized, include_raw=include_raw)
 

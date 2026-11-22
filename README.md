@@ -252,7 +252,7 @@ behind the unsafe-wallet opt-in, and their results contain secret key material.
 | `XIAN_NODE_URL`    | Node RPC URL                                           | `http://127.0.0.1:26657`             |
 | `XIAN_CHAIN_ID`    | Chain ID                                               | `xian-local-1`                      |
 | `XIAN_GRAPHQL`     | GraphQL endpoint                                       | `http://127.0.0.1:5000/graphql`     |
-| `XIAN_INCLUDE_RAW` | Include SDK `raw` payloads in MCP / HTTP responses     | `false`                                |
+| `XIAN_INCLUDE_RAW` | Include SDK `raw` metadata in MCP / HTTP responses     | `false`                                |
 | `XIAN_MCP_ENABLE_UNSAFE_WALLET_TOOLS` | Enable wallet creation/import, signing, encryption/decryption, sends, and DEX trade helpers | `false` |
 | `HTTP_HOST`        | HTTP bind address                                      | `127.0.0.1`                            |
 | `HTTP_PORT`        | HTTP bind port                                         | `8100`                                 |
@@ -272,7 +272,8 @@ file (template in `.env.example`) when using `docker-compose`.
   expiring, single-use DEX plans.
 - `http_server.py` — reusable HTTP REST wrapper around the same tool specs.
 - `serialization.py` — explicit tool-result serialization; types without an
-  encoding raise `TypeError` and surface as tool errors.
+  encoding raise `TypeError` and surface as tool errors. Contract bytes,
+  bytearrays, sets, and frozen sets retain their standard Xian wire tags.
 - `mcp.json`, `custom_catalog.yaml` — example client configurations.
 - `test_requests.jsonl` — sample MCP handshake messages.
 - `tests/` — `unit/` (deterministic) and `integration/` (live-network)

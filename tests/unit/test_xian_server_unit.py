@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 from xian_py.models import TransactionReceipt, TransactionSubmission
+from xian_runtime_types.collections import ContractingFrozenSet, ContractingSet
 
 import dex_tools
 import xian_server
@@ -41,7 +42,6 @@ from xian_server import (
     get_dex_price,
     get_events_for_tx,
     get_indexed_tx,
-    get_state,
     get_state_for_block,
     get_state_for_tx,
     get_state_history,
@@ -879,7 +879,23 @@ class TestCompatibilityRegressions:
         assert result == [{"tx_hash": "tx-1", "sender": "alice"}]
 
     @pytest.mark.asyncio
-    async def test_get_state_preserves_requested_key(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (42, 42),
+            (b"\x00\xff", {"__bytes__": "00ff"}),
+            ({"nested": bytearray(b"\xff")}, {"nested": {"__bytearray__": "ff"}}),
+            (
+                ContractingSet([2, 1]),
+                {"__set__": {"codec": "xian-set-1", "items": [["int", "1"], ["int", "2"]]}},
+            ),
+            (
+                ContractingFrozenSet([2, 1]),
+                {"__frozenset__": {"codec": "xian-set-1", "items": [["int", "1"], ["int", "2"]]}},
+            ),
+        ],
+    )
+    async def test_get_state_preserves_requested_key(self, monkeypatch, value, expected):
         class FakeXianAsync:
             def __init__(self, *_args, **_kwargs):
                 pass
@@ -894,14 +910,18 @@ class TestCompatibilityRegressions:
                 assert contract == "currency"
                 assert variable == "balances"
                 assert keys == ("abc123",)
-                return 42
+                return value
 
         monkeypatch.setattr(xian_server, "XianAsync", FakeXianAsync)
 
         state_key = "currency.balances:abc123"
-        result = await get_state(state_key)
+        result = await xian_server.call_tool("get_state", {"state_key": state_key})
 
-        assert result == {"state_key": state_key, "state_value": 42}
+        assert isinstance(result, list), result
+        assert json.loads(result[0].text) == {
+            "state_key": state_key,
+            "state_value": expected,
+        }
 
     @pytest.mark.asyncio
     async def test_send_transaction_normalizes_submission_objects(self, monkeypatch):
@@ -1204,6 +1224,7 @@ class TestIndexedReadTools:
                         {
                             "tx_hash": "tx-1",
                             "raw": {},
+                            "data": {"raw": {"created_at": "contract data"}},
                         }
                     ],
                 }
@@ -1218,6 +1239,7 @@ class TestIndexedReadTools:
         assert result["events"][0]["tx_hash"] == "tx-1"
         assert "raw" not in result
         assert "raw" not in result["events"][0]
+        assert result["events"][0]["data"] == {"raw": {"created_at": "contract data"}}
 
     @pytest.mark.asyncio
     async def test_bds_and_developer_reward_reads(self, monkeypatch):
@@ -1511,22 +1533,21 @@ class TestTransportSerialization:
         )
 
     def test_normalize_for_transport_can_include_raw_payloads(self, monkeypatch):
+        receipt = TransactionReceipt.from_lookup({"success": True, "result": {"hash": "abc"}})
+        monkeypatch.delenv("XIAN_INCLUDE_RAW", raising=False)
+        assert "raw" not in normalize_for_transport(receipt)
         monkeypatch.setenv("XIAN_INCLUDE_RAW", "true")
 
-        normalized = normalize_for_transport(
-            {"value": 1, "raw": {"source": "sdk"}},
-        )
+        assert normalize_for_transport(receipt)["raw"] == receipt.raw
 
-        assert normalized == {"value": 1, "raw": {"source": "sdk"}}
-
-    def test_normalize_for_transport_drops_raw_by_default(self, monkeypatch):
+    def test_normalize_for_transport_preserves_raw_contract_data(self, monkeypatch):
         monkeypatch.delenv("XIAN_INCLUDE_RAW", raising=False)
 
-        normalized = normalize_for_transport(
-            {"value": 1, "raw": {"source": "sdk"}},
-        )
+        data = {"result": [{"raw": {"raw": b"\xff"}}]}
+        expected = {"result": [{"raw": {"raw": {"__bytes__": "ff"}}}]}
 
-        assert normalized == {"value": 1}
+        assert normalize_for_transport(data) == expected
+        assert json.loads(format_success_response(data)[0].text) == expected
 
 
 class TestSubmissionToolDescriptions:
@@ -1724,7 +1745,7 @@ class TestExplicitTransport:
     def test_every_supported_type_has_an_explicit_encoding(self, value, expected):
         assert normalize_for_transport(value) == expected
 
-    @pytest.mark.parametrize("value", [object(), b"bytes", {"nested": object()}])
+    @pytest.mark.parametrize("value", [object(), {"nested": object()}])
     def test_unknown_types_fail_loudly_instead_of_becoming_str(self, value):
         with pytest.raises(TypeError, match="no MCP transport encoding"):
             format_success_response(value)

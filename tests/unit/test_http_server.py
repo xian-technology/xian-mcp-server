@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from xian_py.models import TransactionSubmission
+from xian_py.models import TransactionReceipt, TransactionSubmission
 
 from http_server import HTTP_CORS_ORIGINS_ENV, HTTP_TOKEN_ENV, create_app
 from tool_policy import UNSAFE_WALLET_TOOLS_ENV
@@ -97,6 +97,22 @@ def test_http_bridge_hides_unsafe_tools_by_default(monkeypatch):
     assert response.status_code == 200
     tool_names = {tool["name"] for tool in response.json()}
     assert tool_names == {"safe_tool"}
+
+
+def test_http_bridge_preserves_contract_raw_inside_a_receipt(monkeypatch):
+    _clear_http_security_env(monkeypatch)
+    monkeypatch.delenv("XIAN_INCLUDE_RAW", raising=False)
+
+    async def handler():
+        return TransactionReceipt.from_lookup(
+            {"success": True, "execution": {"result": {"raw": "contract data"}}}
+        )
+
+    spec = {"name": "demo", "description": "demo", "schema": {"type": "object"}, "handler": handler}
+    response = TestClient(create_app([spec])).post("/tools/demo", json={})
+    assert response.status_code == 200
+    assert response.json()["result"]["execution"]["result"] == {"raw": "contract data"}
+    assert "raw" not in response.json()["result"]
 
 
 def test_http_bridge_rejects_unsafe_tool_calls_by_default(monkeypatch):
