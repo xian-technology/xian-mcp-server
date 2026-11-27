@@ -1262,7 +1262,7 @@ wheels = [
 
 [[package]]
 name = "xian-mcp-server"
-version = "0.1.2"
+version = "0.1.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1295,7 +1295,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0,<2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.12,<0.16" },
     { name = "uvicorn", specifier = ">=0.46.0,<0.47" },
-    { name = "xian-tech-py", extras = ["eth", "hd"], specifier = ">=0.5.3,<0.6" },
+    { name = "xian-tech-py", extras = ["eth", "hd"], specifier = ">=0.5.4,<0.6" },
     { name = "xian-tech-runtime-types", specifier = ">=0.1.6,<0.2" },
 ]
 provides-extras = ["dev"]
@@ -1314,7 +1314,7 @@ wheels = [
 
 [[package]]
 name = "xian-tech-py"
-version = "0.5.3"
+version = "0.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1322,9 +1322,9 @@ dependencies = [
     { name = "xian-tech-accounts" },
     { name = "xian-tech-runtime-types" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/9c/a66a6df56bce615bb9b93bbfee7c9df3cb7dc33946ba04cb822e0a095506/xian_tech_py-0.5.3.tar.gz", hash = "sha256:3986a0313b225df26658f0cb2442eada52f4c8e81b255022de5e984e56e1825d", size = 63023, upload-time = "2026-11-17T22:13:06.2Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/f4/fc50754930e20c52c49970b032431d348505f2defc0339eee8ae885c0a92/xian_tech_py-0.5.4.tar.gz", hash = "sha256:bda1eb592fad4264456bd4873c6e82c7a35de682074ddb1c8d2441feb8c0f107", size = 65037, upload-time = "2026-11-27T08:35:08.831Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/0b/67dc928e6f9743ba0d7ead656a9b8bdddb8bbb5afb5529f812d9860972a9/xian_tech_py-0.5.3-py3-none-any.whl", hash = "sha256:6b7809c2cad95ef02affa1c358cd8107523c12bb3a7aad2eda3376bc37eab21b", size = 62460, upload-time = "2026-11-17T22:13:04.773Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/2e/968fb86564d924945ca1491fe325c61ad7bfe56f2d6e7eb325e815f30ce8/xian_tech_py-0.5.4-py3-none-any.whl", hash = "sha256:e9bb9c71fbfc98b6d4b9d659860bfb770f1ca0c8c716036e3a67e4dc7492a72a", size = 64798, upload-time = "2026-11-27T08:35:07.535Z" },
 ]
 
 [package.optional-dependencies]
